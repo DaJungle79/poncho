@@ -4,42 +4,35 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Poncho — NES Emulator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <main id="app">
-      <header class="topbar">
-        <h1>Poncho</h1>
-        <div class="rom-controls">
-          <select id="rom-list" aria-label="Local ROMs"><option value="">— local /roms —</option></select>
-          <input id="rom-url" type="text" placeholder="ROM URL (https://...)" />
-          <button id="rom-url-load" type="button">Load URL</button>
-          <input id="rom-file" type="file" accept=".nes" />
+    <div id="layout" class="layout">
+      <!-- Sidebar (L1) is built in JS so its icons can be SVG components. -->
+      <aside id="sidebar-host" class="layout-sidebar"></aside>
+      <aside id="panel-l2-host" class="layout-l2"></aside>
+      <aside id="panel-l3-host" class="layout-l3"></aside>
+
+      <main class="layout-main">
+        <div class="brand">
+          <span class="brand-glyph">P</span>
+          <span class="brand-name">Poncho</span>
         </div>
-      </header>
-
-      <section class="screen-wrap">
-        <canvas id="screen" width="256" height="240"></canvas>
-      </section>
-
-      <section class="controls">
-        <label>Scale
-          <select id="scale-select">
-            <option value="1">1x</option>
-            <option value="2" selected>2x</option>
-            <option value="4">4x</option>
-          </select>
-        </label>
-        <button id="btn-power" type="button">Power</button>
-        <button id="btn-reset" type="button">Reset</button>
-        <button id="btn-pause" type="button">Pause</button>
-        <span id="fps" class="fps">— FPS</span>
-      </section>
-
-      <section class="status">
-        <span id="status-text">No ROM loaded.</span>
-      </section>
-    </main>
+        <div class="screen-frame">
+          <canvas id="screen" width="256" height="240"></canvas>
+        </div>
+        <footer class="status-bar">
+          <span id="status-text" class="status-text">No ROM loaded.</span>
+          <span id="fps" class="fps">— FPS</span>
+        </footer>
+      </main>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -22,8 +22,11 @@ export interface InputConfig {
   player2Keys: KeyBindings;
 }
 
+export type ThemeId = 'dark' | 'light';
+
 export interface GeneralConfig {
   lastRomUrl: string | null;
+  theme: ThemeId;
 }
 
 export interface Config {

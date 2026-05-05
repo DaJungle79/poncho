@@ -1,10 +1,64 @@
-:root {
-  --bg: #16181c;
-  --panel: #1f2228;
-  --fg: #e6e6e6;
-  --muted: #8a909a;
-  --accent: #4ea1ff;
-  --border: #2a2e36;
+/* ----------------------------------------------------------------------------
+ * Poncho — UI styles
+ *
+ * Aesthetic: retro NES, but kept warm and readable. Dark NES-palette
+ * background, sharp 1-px borders, monospace accents, a hint of pixel
+ * geometry. The sidebar / panel-stack pattern (L1 / L2 / L3) slides
+ * out to the right of the previous level via flexbox + transform.
+ *
+ * Fonts:
+ *   - "Press Start 2P" (Google Fonts, OFL) for the brand glyph and a
+ *     few headers — the chunky 8-bit pixel font.
+ *   - "JetBrains Mono" for body / control labels — monospace clarity.
+ *   - System sans for paragraphs.
+ * -------------------------------------------------------------------------- */
+
+:root,
+:root[data-theme='dark'] {
+  /* Dark theme — NES-inspired warm dark palette */
+  --bg:           #14121c;     /* near-black with a subtle blue-purple tint */
+  --bg-raised:   #1d1b27;     /* sidebar / panel surface */
+  --bg-deep:    #0a0910;      /* canvas frame / wells */
+  --fg:           #f4f0e6;     /* warm off-white */
+  --fg-soft:     #b9b2a3;     /* labels, hints */
+  --fg-dim:     #6b6557;      /* deemphasized */
+  --accent:      #f87858;     /* NES red — brand + active state */
+  --accent-soft: #fcaf6c;     /* NES orange — highlights */
+  --accent-cool: #5879f8;     /* NES blue — links / focus */
+  --line:        #2a2735;     /* borders */
+  --line-soft:   #221f2c;     /* subtle divisions */
+
+  /* Drop shadow on the right edge of panels for the raised feel */
+  --panel-shadow: 4px 0 12px -2px rgba(0, 0, 0, 0.55);
+  --panel-edge-glow: rgba(255, 255, 255, 0.04);
+  --scanline-color: rgba(255, 255, 255, 0.012);
+
+  --sidebar-w: 56px;
+  --l2-w: 280px;
+  --l3-w: 320px;
+
+  --font-pixel: 'Press Start 2P', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+:root[data-theme='light'] {
+  /* Light theme — warm cream with NES accents tuned for contrast */
+  --bg:          #f5efe2;
+  --bg-raised:   #ede5d4;
+  --bg-deep:     #ffffff;
+  --fg:          #2a2222;
+  --fg-soft:     #54483a;
+  --fg-dim:      #8c8270;
+  --accent:      #c8412c;
+  --accent-soft: #e08020;
+  --accent-cool: #2a4ed4;
+  --line:        #c5b9a0;
+  --line-soft:   #d8cdb6;
+
+  --panel-shadow: 4px 0 12px -2px rgba(70, 50, 30, 0.18);
+  --panel-edge-glow: rgba(255, 255, 255, 0.6);
+  --scanline-color: rgba(0, 0, 0, 0.025);
 }
 
 * { box-sizing: border-box; }
@@ -14,89 +68,543 @@ html, body {
   padding: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
+  line-height: 1.5;
+  height: 100%;
+  overflow: hidden;
 }
 
-#app {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+/* Subtle scanline pattern over the whole UI for retro flavour, very faint */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    var(--scanline-color) 0,
+    var(--scanline-color) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  z-index: 999;
 }
 
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.topbar h1 {
-  font-size: 18px;
-  margin: 0;
-  letter-spacing: 0.5px;
-}
-
-.rom-controls {
-  display: flex;
-  gap: 8px;
-  flex: 1;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.rom-controls input[type="text"] {
-  flex: 1;
-  min-width: 240px;
-}
-
-input, select, button {
-  background: var(--panel);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px 10px;
+button, input, select {
   font: inherit;
+  color: inherit;
 }
 
 button { cursor: pointer; }
-button:hover { border-color: var(--accent); }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent-cool);
+  outline-offset: 2px;
+}
 
-.screen-wrap {
+/* ----- Layout ------------------------------------------------------------- */
+/*
+ * Only the sidebar + main are columns in the grid. L2 and L3 hosts are
+ * positioned absolutely on top of the main area and slide in/out via
+ * `transform: translateX`. Closing a panel does NOT reflow the canvas —
+ * the panel just slides off to the left, tucking behind the sidebar.
+ */
+.layout {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-areas: 'sidebar main';
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+.layout-sidebar { grid-area: sidebar; overflow: hidden; position: relative; z-index: 6; }
+.layout-main    { grid-area: main;    overflow: auto;   position: relative; z-index: 1; }
+
+.layout-l2,
+.layout-l3 {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Slide off-screen to the left by default. */
+  transform: translateX(-100%);
+  transition: transform 220ms steps(10, end);
+  pointer-events: none;
+}
+
+.layout-l2 {
+  left: var(--sidebar-w);
+  width: var(--l2-w);
+  z-index: 5;
+}
+
+.layout-l3 {
+  /* L3 sits to the right of L2 when both are open; closed, it tucks
+     behind L2 (slides out from underneath the L2 panel). */
+  left: calc(var(--sidebar-w) + var(--l2-w));
+  width: var(--l3-w);
+  z-index: 4;
+}
+
+.layout[data-l2] .layout-l2 { transform: translateX(0); pointer-events: auto; }
+.layout[data-l3] .layout-l3 { transform: translateX(0); pointer-events: auto; }
+
+/* ----- Sidebar ----------------------------------------------------------- */
+
+.sidebar {
+  height: 100%;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--line);
+  /* Subtle right-edge shadow so the sidebar reads as a raised surface
+     above the panel below it. The negative spread keeps the shadow
+     on the right edge only, not bleeding upward/downward. */
+  box-shadow:
+    inset -1px 0 0 var(--panel-edge-glow),
+    var(--panel-shadow);
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  position: relative;
+  z-index: 3;
+}
+
+.sidebar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sidebar-spacer { flex: 1; }
+
+.sidebar-btn {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  background: #000;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-soft);
+  border: 1px solid transparent;
+  border-radius: 0;
+  position: relative;
+  transition: color 80ms steps(4, end);
+}
+.sidebar-btn:hover {
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.04);
+}
+.sidebar-btn.active {
+  color: var(--accent);
+  border-left: 2px solid var(--accent);
+  background: rgba(248, 120, 88, 0.08);
+}
+.sidebar-btn svg { width: 22px; height: 22px; }
+
+/* ----- Panels ----------------------------------------------------------- */
+
+.panel {
+  height: 100%;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--line);
+  /* Right-edge shadow so the panel reads as raised above the canvas
+     it overlays. The inset highlight on the right edge enhances the
+     3D feel; the drop-shadow falls onto the main content area. */
+  box-shadow:
+    inset -1px 0 0 var(--panel-edge-glow),
+    var(--panel-shadow);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-sans);
+}
+
+.panel-l3 { background: var(--bg-deep); }
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(to bottom, rgba(255,255,255,0.02), transparent);
+}
+.panel-head h2 {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--fg);
+  text-transform: uppercase;
+}
+.panel-head-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.panel-head-icon svg { width: 100%; height: 100%; }
+
+.panel-body {
+  padding: 14px 16px;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.panel-footer {
+  border-top: 1px solid var(--line);
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+/* ----- ROMs panel -------------------------------------------------------- */
+
+.rom-section h3 {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--fg-soft);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.rom-section .hint {
+  color: var(--fg-dim);
+  font-size: 10px;
+  font-weight: normal;
+  letter-spacing: 0;
+}
+
+.rom-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.rom-empty {
+  color: var(--fg-dim);
+  font-size: 12px;
+  padding: 6px 8px;
+}
+.rom-empty code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-deep);
+  padding: 1px 4px;
+}
+.rom-item-btn {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rom-item-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--line);
+}
+
+.rom-url-form {
+  display: flex;
+  gap: 6px;
+}
+.rom-url-form input[type="text"] {
+  flex: 1;
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.rom-url-form button {
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  color: var(--fg-soft);
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.rom-url-form button:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+.file-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-deep);
+  border: 1px dashed var(--line);
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--fg-soft);
+}
+.file-button:hover {
+  color: var(--fg);
+  border-color: var(--accent-cool);
+  border-style: solid;
+}
+.file-button svg { width: 16px; height: 16px; }
+
+.rom-status {
+  margin-top: auto;
+  padding: 8px 10px;
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-soft);
+  min-height: 32px;
+  word-break: break-word;
+}
+
+.rom-action {
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.rom-action svg { width: 18px; height: 18px; }
+.rom-action:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ----- Settings panel ---------------------------------------------------- */
+
+.settings-group h3 {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--fg-soft);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-group h3 svg { width: 14px; height: 14px; color: var(--accent-soft); }
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.settings-row:last-child { border-bottom: 0; }
+
+.settings-row select,
+.settings-row input[type="range"] {
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 4px 6px;
+  min-width: 80px;
+}
+.settings-row input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  padding: 0;
+  flex: 1;
+  max-width: 140px;
+}
+.settings-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border: 1px solid var(--bg);
+  border-radius: 0;
+}
+.settings-row input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border: 1px solid var(--bg);
+  border-radius: 0;
+}
+
+.settings-link {
+  width: 100%;
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.settings-link:hover { border-color: var(--accent-cool); color: var(--accent-cool); }
+.settings-link .chev { margin-left: auto; }
+.settings-link svg { width: 16px; height: 16px; }
+
+/* ----- Controls panel (L3) ----------------------------------------------- */
+
+.controls-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: left;
+}
+.control-row:hover { border-color: var(--accent-cool); }
+.control-row.capturing {
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: capture-pulse 800ms steps(2, end) infinite;
+}
+@keyframes capture-pulse {
+  0%, 100% { background: var(--bg-raised); }
+  50%      { background: rgba(248, 120, 88, 0.08); }
+}
+
+.control-label { font-weight: 500; }
+.control-key {
+  font-family: var(--font-mono);
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  padding: 2px 8px;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  min-width: 56px;
+  text-align: center;
+}
+
+.reset-controls {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--fg-soft);
   padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.reset-controls:hover { color: var(--accent); border-color: var(--accent); }
+
+.controls-hint {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: var(--fg-dim);
+  font-style: italic;
+}
+
+/* ----- Main content ------------------------------------------------------ */
+
+.layout-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  gap: 12px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 4px 0 16px;
+  align-self: center;
+}
+.brand-glyph {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--bg);
+  font-family: var(--font-pixel);
+  font-size: 14px;
+}
+.brand-name {
+  font-family: var(--font-pixel);
+  font-size: 14px;
+  letter-spacing: 1px;
+  color: var(--fg);
+}
+
+.screen-frame {
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  padding: 16px;
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 8px 30px rgba(0, 0, 0, 0.5);
 }
 
 #screen {
+  display: block;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
-  display: block;
+  background: black;
 }
 
-.controls {
+.status-bar {
+  align-self: stretch;
   display: flex;
-  gap: 12px;
+  justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-soft);
 }
-
-.controls label { display: flex; align-items: center; gap: 6px; }
-
-.fps {
-  margin-left: auto;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.status {
-  color: var(--muted);
-  font-size: 13px;
-}
+.fps { color: var(--accent-soft); font-variant-numeric: tabular-nums; }
+.status-text { word-break: break-word; }
