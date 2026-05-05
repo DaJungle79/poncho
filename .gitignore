@@ -1,0 +1,21 @@
+node_modules
+dist
+.vite
+coverage
+tsconfig.tsbuildinfo
+
+# OS noise
+**/.DS_Store
+*.log
+
+# Local Claude Code settings (never commit these)
+.claude/
+
+# Game ROMs (commercial titles dropped in for the dev server) — never commit.
+roms/*
+!roms/.gitkeep
+
+# Test ROMs (free + redistributable, but big binaries) — keep out of git.
+# Tests skipIf the file is missing, so CI is fine without them.
+tests/roms/*
+!tests/roms/.gitkeep

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Poncho — NES Emulator</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <header class="topbar">
+        <h1>Poncho</h1>
+        <div class="rom-controls">
+          <select id="rom-list" aria-label="Local ROMs"><option value="">— local /roms —</option></select>
+          <input id="rom-url" type="text" placeholder="ROM URL (https://...)" />
+          <button id="rom-url-load" type="button">Load URL</button>
+          <input id="rom-file" type="file" accept=".nes" />
+        </div>
+      </header>
+
+      <section class="screen-wrap">
+        <canvas id="screen" width="256" height="240"></canvas>
+      </section>
+
+      <section class="controls">
+        <label>Scale
+          <select id="scale-select">
+            <option value="1">1x</option>
+            <option value="2" selected>2x</option>
+            <option value="4">4x</option>
+          </select>
+        </label>
+        <button id="btn-power" type="button">Power</button>
+        <button id="btn-reset" type="button">Reset</button>
+        <button id="btn-pause" type="button">Pause</button>
+        <span id="fps" class="fps">— FPS</span>
+      </section>
+
+      <section class="status">
+        <span id="status-text">No ROM loaded.</span>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
