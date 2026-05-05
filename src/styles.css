@@ -273,8 +273,15 @@ select:focus-visible {
   text-transform: uppercase;
   color: var(--fg-soft);
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
+}
+/* Section icons: small + center-aligned with the title cap-height. */
+.rom-section h3 svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent-soft);
+  flex-shrink: 0;
 }
 .rom-section .hint {
   color: var(--fg-dim);
@@ -304,8 +311,13 @@ select:focus-visible {
   background: var(--bg-deep);
   padding: 1px 4px;
 }
+.rom-item {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
 .rom-item-btn {
-  width: 100%;
+  flex: 1;
   text-align: left;
   background: transparent;
   border: 1px solid transparent;
@@ -315,11 +327,43 @@ select:focus-visible {
   color: var(--fg);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  min-width: 0;
 }
 .rom-item-btn:hover {
   background: rgba(255, 255, 255, 0.04);
   border-color: var(--line);
+}
+.rom-item-name {
+  /* Truncate cleanly when filenames are long. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.rom-item-meta {
+  color: var(--fg-dim);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+/* Delete button for browser-storage entries — small, hover-emphasized. */
+.rom-item-del {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-dim);
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.rom-item-del svg { width: 14px; height: 14px; }
+.rom-item-del:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .rom-url-form {
@@ -368,6 +412,19 @@ select:focus-visible {
   border-style: solid;
 }
 .file-button svg { width: 16px; height: 16px; }
+
+/*
+ * Compact variant — used below the browser-storage list, where the
+ * primary action is "click an existing entry" and Upload is the
+ * secondary "add another" affordance.
+ */
+.file-button-compact {
+  margin-top: 8px;
+  padding: 5px 10px;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+}
+.file-button-compact svg { width: 13px; height: 13px; }
 
 .rom-status {
   margin-top: auto;

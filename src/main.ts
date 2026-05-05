@@ -6,8 +6,8 @@ import { createScaler } from './renderer/scalers';
 import { createFilter } from './renderer/filters';
 import type { RenderPipeline } from './renderer/renderer';
 import { LocalRomLoader } from './rom/local-loader';
-import { UrlRomLoader } from './rom/url-loader';
 import { FileRomLoader } from './rom/file-loader';
+import { BrowserRomStorage } from './rom/browser-storage';
 import { WebAudioSink } from './audio/web-audio-sink';
 import { applyLogLevelsFromQuery, log } from './debug/logger';
 import { gameIcon, mountLucideIcons } from './ui/icons';
@@ -49,8 +49,8 @@ const keyboard = new KeyboardSource(config.get().input.player1Keys);
 nes.setController(1, keyboard);
 
 const localLoader = new LocalRomLoader();
-const urlLoader = new UrlRomLoader();
 const fileLoader = new FileRomLoader();
+const romStorage = new BrowserRomStorage();
 const romInfo = new RomInfoClient();
 // Hook to add a remote source later, e.g.:
 //   romInfo.addSource(new ScreenScraperSource({ devid, devpassword }));
@@ -176,8 +176,8 @@ $<HTMLElement>('sidebar-host').appendChild(sidebar.root);
 
 const romsPanel = new RomsPanel({
   localLoader,
-  urlLoader,
   fileLoader,
+  storage: romStorage,
   onLoaded: loadRom,
   onPower: powerToggle,
   onReset: resetEmu,
