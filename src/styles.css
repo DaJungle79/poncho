@@ -554,13 +554,28 @@ select:focus-visible {
   gap: 12px;
 }
 
+/*
+ * Title bar above the canvas. Vertical stack: the Poncho brand on top
+ * is always visible; the game title appears underneath when a ROM is
+ * loaded (and is hidden via `hidden` attribute when not).
+ */
+.title-bar {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 6px 0 18px;
+}
+
+/* ----- Brand (no ROM loaded) ------------------------------------------- */
+
 .brand {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 4px 0 16px;
-  align-self: center;
 }
 .brand-glyph {
   width: 32px;
@@ -579,6 +594,48 @@ select:focus-visible {
   letter-spacing: 1px;
   color: var(--fg);
 }
+
+/* ----- Game title (ROM loaded) ----------------------------------------- */
+
+.game-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+/* main.ts toggles `.title-anim` after each load to re-trigger the keyframes. */
+.game-title.title-anim {
+  animation: title-pop 320ms steps(8, end);
+}
+@keyframes title-pop {
+  0%   { opacity: 0; transform: translateY(-4px); }
+  100% { opacity: 1; transform: translateY(0);    }
+}
+.game-title-name {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 22px;
+  line-height: 1.15;
+  letter-spacing: 1.5px;
+  color: var(--fg);
+  text-shadow:
+    2px 2px 0 var(--bg-deep),
+    0 0 8px rgba(248, 120, 88, 0.18);
+  /* Hint to the browser to keep titles on a single line where possible.
+     Long names will still wrap rather than overflow. */
+  max-width: 60ch;
+  word-break: break-word;
+}
+.game-title-sub {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent-soft);
+}
+.game-title-sub:empty { display: none; }
 
 .screen-frame {
   background: var(--bg-deep);

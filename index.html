@@ -20,10 +20,19 @@
       <aside id="panel-l3-host" class="layout-l3"></aside>
 
       <main class="layout-main">
-        <div class="brand">
-          <span class="brand-glyph">P</span>
-          <span class="brand-name">Poncho</span>
-        </div>
+        <header class="title-bar">
+          <!-- main.ts toggles which child is visible based on whether
+               a game is loaded. Both kept in the DOM so CSS transitions
+               can animate between them. -->
+          <div id="brand" class="brand">
+            <span class="brand-glyph">P</span>
+            <span class="brand-name">Poncho</span>
+          </div>
+          <div id="game-title" class="game-title" hidden>
+            <h1 class="game-title-name" data-title></h1>
+            <p class="game-title-sub" data-subtitle></p>
+          </div>
+        </header>
         <div class="screen-frame">
           <canvas id="screen" width="256" height="240"></canvas>
         </div>

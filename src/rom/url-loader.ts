@@ -25,11 +25,17 @@ export class UrlRomLoader implements RomLoader {
   }
 }
 
+/**
+ * Extract a human-readable filename from a URL. Percent-decoded so
+ * "Mighty%20Bomb%20Jack%20(E).nes" resolves to "Mighty Bomb Jack (E).nes",
+ * which is what the rest of the app (and the user) expects.
+ */
 function basenameOf(url: string): string {
   try {
     const u = new URL(url, 'http://localhost');
     const segs = u.pathname.split('/').filter(Boolean);
-    return segs[segs.length - 1] ?? url;
+    const last = segs[segs.length - 1] ?? url;
+    return decodeURIComponent(last);
   } catch {
     return url;
   }

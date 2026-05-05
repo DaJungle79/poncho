@@ -17,6 +17,7 @@ import { RomsPanel } from './ui/panels/roms-panel';
 import { SettingsPanel } from './ui/panels/settings-panel';
 import { ControlsPanel } from './ui/panels/controls-panel';
 import type { LoadedRom } from './rom/loader';
+import { RomInfoClient, type RomMeta } from './rom/info-client';
 
 applyLogLevelsFromQuery(window.location.search);
 
@@ -50,6 +51,11 @@ nes.setController(1, keyboard);
 const localLoader = new LocalRomLoader();
 const urlLoader = new UrlRomLoader();
 const fileLoader = new FileRomLoader();
+const romInfo = new RomInfoClient();
+// Hook to add a remote source later, e.g.:
+//   romInfo.addSource(new ScreenScraperSource({ devid, devpassword }));
+// The client already caches by SHA-1, so any source is queried at most
+// once per ROM per browser.
 
 function buildPipeline(): RenderPipeline {
   const cfg = config.get().video;
@@ -74,10 +80,36 @@ const audioBuffer = new Float32Array(2048);
 
 const statusEl = $<HTMLSpanElement>('status-text');
 const fpsEl = $<HTMLSpanElement>('fps');
+const gameTitleEl = $<HTMLDivElement>('game-title');
+const gameTitleNameEl = gameTitleEl.querySelector<HTMLHeadingElement>('[data-title]')!;
+const gameTitleSubEl = gameTitleEl.querySelector<HTMLParagraphElement>('[data-subtitle]')!;
 
 function setStatus(text: string): void {
   statusEl.textContent = text;
   romsPanel.setStatus(text);
+}
+
+/**
+ * Show the loaded game's title underneath the (always-visible) Poncho
+ * brand. Passing `null` hides the title block again. We retrigger the
+ * `title-pop` CSS animation by toggling a class so each new ROM gets
+ * the slide-fade-in, even when one was already showing.
+ */
+function setGameTitle(meta: RomMeta | null): void {
+  if (meta) {
+    gameTitleNameEl.textContent = meta.title;
+    gameTitleSubEl.textContent = meta.subtitle ?? '';
+    gameTitleEl.hidden = false;
+    // Force a CSS animation restart: drop the class, trigger a reflow
+    // (offsetWidth read), put it back — the browser re-runs keyframes.
+    gameTitleEl.classList.remove('title-anim');
+    void gameTitleEl.offsetWidth;
+    gameTitleEl.classList.add('title-anim');
+    document.title = `Poncho — ${meta.title}`;
+  } else {
+    gameTitleEl.hidden = true;
+    document.title = 'Poncho — NES Emulator';
+  }
 }
 
 async function loadRom(rom: LoadedRom): Promise<void> {
@@ -91,6 +123,14 @@ async function loadRom(rom: LoadedRom): Promise<void> {
     nes.apu.setSampleRate(audioSink.sampleRate);
     audioSink.setVolume(config.get().audio.volume);
     audioSink.setMuted(config.get().audio.muted);
+    // RomInfo lookup is async but non-blocking. The ROM still loads
+    // and starts running; the title appears as soon as the lookup
+    // resolves (filename parsing alone is synchronous-ish — just a
+    // SHA-1 hash + cache write).
+    romInfo.lookup(rom).then(setGameTitle).catch((err) => {
+      log.warn('rom', 'rominfo lookup failed', err);
+      setGameTitle({ title: rom.name.replace(/\.nes$/i, ''), subtitle: null, source: 'filename' });
+    });
   } catch (err) {
     log.error('rom', err);
     setStatus(`Failed: ${(err as Error).message}`);
@@ -109,6 +149,7 @@ function powerToggle(): void {
     nes.unload();
     void audioSink.stop();
     setStatus('Powered off.');
+    setGameTitle(null);
   }
 }
 
