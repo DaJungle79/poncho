@@ -17,7 +17,7 @@
  * works for any ROM that uses the blargg protocol.
  */
 import { readFileSync } from 'node:fs';
-import { Nes } from '../../src/core/nes';
+import { Nes } from '../../src/console/nes';
 
 const SIG = [0xde, 0xb0, 0x61] as const;
 const STATE_RUNNING = 0x80;

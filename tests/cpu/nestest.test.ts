@@ -19,7 +19,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { Nes } from '../../src/core/nes';
+import { Nes } from '../../src/console/nes';
 import { testRomPath } from '../rom-paths';
 
 const ROM_PATH = testRomPath('nestest.nes');

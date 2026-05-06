@@ -11,7 +11,7 @@
  * Tauri's webview). For non-DOM shells, this class would be replaced
  * by a different orchestrator that consumes the same emulator core.
  */
-import { Nes } from '../../core/nes';
+import { Nes } from '../../console/nes';
 import { KeyboardSource } from '../../core/input/keyboard-source';
 import { ConfigStore } from '../../config/store';
 import { Canvas2DRenderer } from '../../renderer/canvas-renderer';

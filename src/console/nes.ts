@@ -1,17 +1,18 @@
-import { Apu } from './apu/apu';
-import { CpuBus } from './bus/cpu-bus';
-import { PpuBus } from './bus/ppu-bus';
-import { Cartridge } from './cart/cartridge';
-import { parseInes } from './cart/ines';
-import { Cpu } from './cpu/cpu';
-import { Controller } from './input/controller';
-import type { ControllerSource } from './input/source';
-import { Ppu } from './ppu/ppu';
+import { Apu } from '../core/apu/apu';
+import { CpuBus } from '../core/bus/cpu-bus';
+import { PpuBus } from '../core/bus/ppu-bus';
+import { Cartridge } from '../core/cart/cartridge';
+import { parseInes } from '../core/cart/ines';
+import { Cpu } from '../core/cpu/cpu';
+import { Controller } from '../core/input/controller';
+import type { ControllerSource } from '../core/input/source';
+import { Ppu } from '../core/ppu/ppu';
 import type { FrameBuffer } from '../renderer/frame-buffer';
+import type { Console } from './console';
 
 /**
- * Top-level console. Wires the CPU, PPU, APU, buses, controllers, and
- * cartridge together.
+ * Top-level NES console. One composition of chips from `src/core/`:
+ * 2A03 CPU + 2C02 PPU + 2A03 APU + iNES cartridge + standard NES mappers.
  *
  * Per-cycle synchronization model:
  *   - The CPU ticks the rest of the system *before* every bus access via
@@ -23,7 +24,7 @@ import type { FrameBuffer } from '../renderer/frame-buffer';
  *   - This way mid-instruction reads of $2002, register writes that race
  *     vblank, and OAM DMA all see the right state at the right cycle.
  */
-export class Nes {
+export class Nes implements Console {
   readonly cpu: Cpu;
   readonly ppu: Ppu;
   readonly apu: Apu;

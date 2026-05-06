@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 
-import { Nes } from '../src/core/nes';
+import { Nes } from '../src/console/nes';
 
 function main(): void {
   const args = process.argv.slice(2);
