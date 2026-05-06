@@ -18,7 +18,7 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 ### Changed
 - Each shell now owns its own App orchestrator and UI tree. `src/app.ts` and `src/ui/` moved into `src/shells/web/`. UI is no longer shared across shells.
 
-## [0.1.0] — 2026-05-04
+## [0.1.0] — 2026-05-05
 
 First public release.
 
