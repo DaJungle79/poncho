@@ -19,3 +19,6 @@ roms/*
 # Tests skipIf the file is missing, so CI is fine without them.
 tests/roms/*
 !tests/roms/.gitkeep
+# Synthetic PonchoROMs are small + deterministic; they're committed.
+!tests/roms/poncho/
+!tests/roms/poncho/**

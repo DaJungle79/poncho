@@ -1,6 +1,6 @@
 # Architecture
 
-Quick orientation. For the *why-it-works-this-way* details (per-cycle synchronization, addressing-mode twins, frame-end latching, etc.) read [`CLAUDE.md`](../CLAUDE.md).
+Quick orientation. For the *why-it-works-this-way* details (per-cycle synchronization, addressing-mode twins, frame-end latching, etc.) read [`CLAUDE.md`](../CLAUDE.md). For the catalogue of supported virtual consoles and their hardware capabilities, read [`consoles.md`](consoles.md).
 
 ---
 
@@ -32,25 +32,27 @@ Frame end is latched inside the CPU's per-cycle tick callback the moment the PPU
 
 ## Module layering
 
-The codebase is layered so that everything outside `src/platform/` and `src/shells/` is shell-agnostic. A new shell brings its own `Platform` factory *and* its own App + UI.
+The codebase is layered so that everything outside `src/platform/` and `src/shells/` is shell-agnostic. A new shell brings its own `Platform` factory *and* its own App + UI. The emulator runtime itself is split between **chips** (`src/core/`) and **compositions** that wire chips into a virtual console (`src/console/`).
 
 ```mermaid
 flowchart TD
     Main["src/shells/web/main.ts<br/>(bootstrap)"] --> App["src/shells/web/app.ts<br/>App orchestrator"]
     Main --> Platform["src/platform/web/<br/>WebAudioSink · WebRomLibrary<br/>WebServerRomLoader · WebFilePicker"]
     App --> UI["src/shells/web/ui/<br/>Sidebar · sliding panels · icons"]
-    App --> Core["src/core/<br/>Nes (CPU + PPU + APU + buses + mappers)"]
+    App --> Console["src/console/<br/>Console interface · NES · Poncho-NES"]
     App --> Renderer["src/renderer/<br/>FrameBuffer · Filter · Scaler · Canvas2DRenderer"]
     App --> Audio["src/audio/<br/>AudioSink interface"]
     App --> Config["src/config/<br/>ConfigStore (Storage-backed, versioned)"]
     App --> Rom["src/rom/<br/>RomInfoClient + cache"]
+    Console --> Core["src/core/<br/>chip library: CPU · PPU · APU · buses · mappers"]
     Platform -. "implements" .-> PlatformIface["src/platform/types.ts<br/>Platform interface"]
     Audio -. "implemented by" .-> Platform
 ```
 
 Things to know:
 
-- `src/core/` has no DOM, no Node, no fetch. The same `Nes` class drives the browser main loop *and* the headless integration tests.
+- `src/core/` is a pure chip library: CPU, PPU, APU, buses, cartridge, mappers. No DOM, no Node, no fetch. Each chip is self-contained — the 6502 doesn't know it's "in an NES".
+- `src/console/` holds compositions: each file picks chips from `src/core/` and wires them. `nes.ts` and `poncho-nes.ts` both implement the `Console` interface so the shell can drive either. The full catalogue with hardware specs is in [`consoles.md`](consoles.md).
 - `src/renderer/` is a pure pipeline (`preFilters → scaler → postFilters`). Each stage shares the `RenderStage` interface, so adding CRT / NTSC effects is "drop in a new filter, register it, list it in config".
 - `src/platform/types.ts` is the platform-API seam: `audio`, `configStorage`, `romInfoStorage`, `romLibrary`, `serverRoms`, `filePicker`. Implemented per-shell under `src/platform/<name>/`.
 - `src/shells/<name>/` is the *shell* seam: each shell owns its own bootstrap, App orchestrator, and UI tree. The web shell's App lives at `src/shells/web/app.ts`; its panels at `src/shells/web/ui/`. UI is intentionally **not** shared across shells — duplication is fine until two shells converge on a UI worth lifting out.

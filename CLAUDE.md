@@ -43,7 +43,7 @@ src/
   domain/             Platform-agnostic types. Pure interfaces only.
     rom.ts              LoadedRom · RomMeta · StoredRomEntry · RomInfoSource
 
-  core/                 Emulator core (no DOM / Node deps).
+  core/                 Chip library (no DOM / Node deps). Generic 2A03/2C02 parts.
     cpu/                6502: flags · addressing · instructions · opcodes · cpu · disasm
     ppu/                2C02: registers · timing · ppu · palette · render
     apu/                2A03 audio: 5 channels + frame-counter + mixer + filters
@@ -51,7 +51,23 @@ src/
     cart/               iNES parser, Cartridge wrapper, Mapper interface.
     mappers/            NROM(0), MMC1(1), UxROM(2), CNROM(3), MMC3(4), AxROM(7).
     input/              Controller + ControllerSource interface + KeyboardSource.
-    nes.ts              Top-level wiring. Sets cpu.tickCallback, ppu.nmiCallback, etc.
+    cart-poncho/        PonchoROM header parser + writer + cartridge + CRC32.
+    mappers-poncho/     PonchoMapper. Stub: flat PRG mirroring, no banking yet.
+    bus-poncho/         Poncho-NES CPU bus. Accepts either a PonchoCartridge
+                        (native mode) or an iNES Cartridge (compat mode) via
+                        a structural BusCartridge interface.
+    ppu-ultra/          2C02-Ultra. BG + sprites + scrolling + NMI; full
+                        $2000-$2007 register file; NES-compat sub-mode that
+                        renders 8×8 2bpp tiles at 4× pixel-block scale via
+                        the cartridge mapper. Sprite-0 hit / 8×16 sprites /
+                        MMC3 IRQ accuracy still pending.
+
+  console/              Compositions: pick chips from core/, wire a virtual console.
+    console.ts          Console + ConsoleFactory + ConsoleSpec interfaces.
+    specs.ts            NES_SPEC + PONCHO_NES_SPEC (data only — UI + docs SoT).
+    detect.ts           Magic-byte registry. Routes ROM bytes to a factory.
+    nes.ts              NES composition. Sets cpu.tickCallback, ppu.nmiCallback, etc.
+    poncho-nes.ts       Poncho-NES composition (Ultra PPU + APU + PonchoROM).
 
   renderer/             Pure rendering pipeline. Reusable by every shell.
     frame-buffer        Uint32 pixel store + size constants.
@@ -159,6 +175,8 @@ Whenever you change project structure, add/remove features, or alter visible beh
 - **`README.md`** — feature lists, mapper table, controls, browser support, screenshot, "Adding a new shell" example. The user-facing front door.
 - **`CHANGELOG.md`** — add or update an entry under `## [Unreleased]`. Promote it to a versioned heading when cutting a release.
 - **`docs/architecture.md`** — module layering, data-flow diagram, ROM-loading paths. If you move modules around or add a new top-level layer, the diagrams need to follow.
+- **`docs/consoles.md`** + **`src/console/specs.ts`** — when a console's hardware capabilities change, update the spec data first; the doc tables mirror it. When a console reaches feature parity, flip its `status` field from `'beta'` to `'working'` and update the comparison tables in `consoles.md` and the README.
+- **`docs/poncho-rom.md`** — PonchoROM file format spec. Until the format is locked, all design changes (header layout, mapper register map, conversion rules) land here first, before code.
 
 If the change is structural (renaming/moving modules, changing the `Platform` interface, altering the per-cycle sync model), also update the relevant section of this file (`CLAUDE.md`) so the architecture overview here doesn't drift.
 

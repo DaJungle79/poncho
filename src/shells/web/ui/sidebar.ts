@@ -71,6 +71,7 @@ export class Sidebar {
     button.dataset.tooltip = tooltip;
     button.setAttribute('aria-label', tooltip);
     button.dataset.id = item.id;
+    if (item.hotkey) button.dataset.hotkey = item.hotkey;
     if (item.panelId) button.dataset.panel = item.panelId;
     button.appendChild(item.icon());
     if (item.panelId) {
@@ -79,13 +80,31 @@ export class Sidebar {
     } else {
       button.addEventListener('click', () => item.onClick!());
     }
-    button.addEventListener('mouseenter', () => this.showTooltip(button, tooltip));
+    // Read tooltip from dataset on each event so dynamic updates via
+    // `setTooltip()` are picked up without rebinding handlers.
+    button.addEventListener('mouseenter', () => this.showTooltip(button, button.dataset.tooltip ?? ''));
     button.addEventListener('mouseleave', () => this.hideTooltip());
-    button.addEventListener('focus', () => this.showTooltip(button, tooltip));
+    button.addEventListener('focus', () => this.showTooltip(button, button.dataset.tooltip ?? ''));
     button.addEventListener('blur', () => this.hideTooltip());
     (item.position === 'top' ? this.topRow : this.bottomRow).appendChild(button);
     this.buttons.set(item.id, button);
     if (item.hotkey) this.hotkeys.set(item.hotkey.toLowerCase(), button);
+  }
+
+  /**
+   * Update the tooltip + aria-label for an existing item. Used by the
+   * console-selector whose hover hint reflects the live selection.
+   */
+  setTooltip(id: string, label: string): void {
+    const button = this.buttons.get(id);
+    if (!button) return;
+    const hotkey = button.dataset.hotkey;
+    const text = hotkey ? `${label} (${hotkey})` : label;
+    button.dataset.tooltip = text;
+    button.setAttribute('aria-label', text);
+    if (this.tooltip.classList.contains('visible')) {
+      this.tooltip.textContent = text;
+    }
   }
 
   /** Reflect the stack's current selection in the visible "active" state. */

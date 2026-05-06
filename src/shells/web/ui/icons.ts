@@ -22,6 +22,7 @@
 import {
   ChevronDown,
   ChevronRight,
+  Cpu,
   Folder,
   HardDrive,
   Keyboard,
@@ -57,6 +58,7 @@ export function mountLucideIcons(): void {
     icons: {
       ChevronDown,
       ChevronRight,
+      Cpu,
       Folder,
       HardDrive,
       Keyboard,

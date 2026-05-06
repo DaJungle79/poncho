@@ -92,6 +92,23 @@ Audio is muted until you interact with the page — that's a browser autoplay po
 
 Rebind any binding under **Settings → Controls**.
 
+## Virtual consoles
+
+Poncho hosts more than one virtual console under one runtime. Each is a *composition* of chips from `src/core/` (CPU, PPU, APU, buses, mappers) wired together. Pick the active console from the sidebar (top icon, hotkey `0`).
+
+| | NES (working) | Poncho-NES (beta) |
+|---|---|---|
+| **CPU** | Ricoh 2A03 @ 1.79 MHz | Ricoh 2A03 @ 1.79 MHz |
+| **PPU** | 2C02 | 2C02-Ultra |
+| **Resolution** | 256 × 240 | 1024 × 960 |
+| **Colours on screen** | 32 | 2048 |
+| **Sprite size** | 8 × 8 | 32 × 32 |
+| **Sprites per scanline** | 8 | 32 |
+| **APU** | 5-channel 2A03 | identical |
+| **Cart formats** | iNES (`NES\x1A`) | PonchoROM (`PNCH`) + iNES (NES-compat mode, `.nes` rendered at 4× scale) |
+
+Full architecture and the PonchoROM format spec live in [`docs/consoles.md`](docs/consoles.md) and [`docs/poncho-rom.md`](docs/poncho-rom.md). The hardware specs above are a snapshot of [`src/console/specs.ts`](src/console/specs.ts), which is the source of truth.
+
 ## Compatible games (by mapper)
 
 Six cartridge mappers, covering roughly 85% of the commercial library:

@@ -12,6 +12,9 @@
  * by a different orchestrator that consumes the same emulator core.
  */
 import { Nes } from '../../console/nes';
+import { PonchoNes } from '../../console/poncho-nes';
+import { ALL_SPECS, NES_SPEC, PONCHO_NES_SPEC } from '../../console/specs';
+import type { ConsoleSpec } from '../../console/console';
 import { KeyboardSource } from '../../core/input/keyboard-source';
 import { ConfigStore } from '../../config/store';
 import { Canvas2DRenderer } from '../../renderer/canvas-renderer';
@@ -22,6 +25,7 @@ import { applyLogLevelsFromQuery, log } from '../../debug/logger';
 import { gameIcon, mountLucideIcons } from './ui/icons';
 import { PanelStack } from './ui/panel-stack';
 import { Sidebar } from './ui/sidebar';
+import { ConsolesPanel } from './ui/panels/consoles-panel';
 import { RomsPanel } from './ui/panels/roms-panel';
 import { SettingsPanel } from './ui/panels/settings-panel';
 import { ControlsPanel } from './ui/panels/controls-panel';
@@ -49,7 +53,8 @@ export interface AppDom {
 export class App {
   // ----- Core --------------------------------------------------------------
   readonly config: ConfigStore;
-  readonly nes: Nes;
+  /** Active virtual console. Replaced when the user picks a different one. */
+  nes: Nes | PonchoNes;
   readonly renderer: Canvas2DRenderer;
   readonly keyboard: KeyboardSource;
   readonly romInfo: RomInfoClient;
@@ -88,7 +93,7 @@ export class App {
     this.applyStatusBar(this.config.get().general.showStatusBar);
 
     // ----- Emulator + renderer ------------------------------------------
-    this.nes = new Nes();
+    this.nes = createConsole(this.config.get().general.selectedConsoleId);
     this.renderer = new Canvas2DRenderer(dom.canvas);
     this.renderer.setPipeline(this.buildPipeline());
 
@@ -101,6 +106,13 @@ export class App {
     this.stack = new PanelStack(dom.layoutRoot, dom.panelL2Host, dom.panelL3Host);
     this.sidebar = new Sidebar(this.stack);
     dom.sidebarHost.appendChild(this.sidebar.root);
+
+    const consolesPanel = new ConsolesPanel({
+      specs: ALL_SPECS,
+      initialSelectedId: this.config.get().general.selectedConsoleId,
+      onSelect: (spec) => this.selectConsole(spec),
+    });
+    this.stack.registerL2(consolesPanel);
 
     this.romsPanel = new RomsPanel({
       romLibrary: platform.romLibrary,
@@ -129,6 +141,14 @@ export class App {
     });
     this.stack.registerL3(controlsPanel);
 
+    this.sidebar.add({
+      id: 'consoles',
+      panelId: 'consoles',
+      label: this.consoleLabelFromId(this.config.get().general.selectedConsoleId),
+      position: 'top',
+      hotkey: '0',
+      icon: () => lucide('cpu'),
+    });
     this.sidebar.add({
       id: 'roms',
       panelId: 'roms',
@@ -286,6 +306,34 @@ export class App {
     this.paused = !this.paused;
   }
 
+  /**
+   * Switch the active virtual console. Persists the choice, replaces
+   * the running engine, and rewires the input + audio plumbing. Any
+   * loaded ROM is ejected — the user picks a fresh one for the new
+   * console (formats may differ).
+   */
+  private selectConsole(spec: ConsoleSpec): void {
+    if (this.config.get().general.selectedConsoleId === spec.id) return;
+
+    if (this.powered) this.togglePower(); // ejects current ROM, stops audio
+
+    this.config.update((cfg) => {
+      cfg.general.selectedConsoleId = spec.id;
+      return cfg;
+    });
+
+    this.nes = createConsole(spec.id);
+    this.nes.setController(1, this.keyboard);
+
+    this.sidebar.setTooltip('consoles', this.consoleLabelFromId(spec.id));
+    this.setStatus(`${spec.name} selected.`);
+  }
+
+  private consoleLabelFromId(id: string): string {
+    const spec = ALL_SPECS.find((s) => s.id === id);
+    return spec ? spec.name : 'Console';
+  }
+
   private setStatus(text: string): void {
     this.dom.statusEl.textContent = text;
     this.romsPanel.setStatus(text);
@@ -332,4 +380,16 @@ function lucide(name: string): HTMLElement {
   const i = document.createElement('i');
   i.dataset.lucide = name;
   return i;
+}
+
+/**
+ * Instantiate the runtime for a given console-spec id. Falls back to
+ * Classic NES if the id is unknown — keeps the boot path resilient
+ * against stale config values.
+ */
+function createConsole(id: string): Nes | PonchoNes {
+  if (id === PONCHO_NES_SPEC.id) return new PonchoNes();
+  if (id === NES_SPEC.id) return new Nes();
+  log.warn('rom', `Unknown console id "${id}", falling back to Classic NES.`);
+  return new Nes();
 }

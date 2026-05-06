@@ -28,6 +28,8 @@ export interface GeneralConfig {
   lastRomUrl: string | null;
   theme: ThemeId;
   showStatusBar: boolean;
+  /** Active virtual console (id from `src/console/specs.ts`). */
+  selectedConsoleId: string;
 }
 
 export interface Config {

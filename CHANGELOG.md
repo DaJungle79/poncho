@@ -8,6 +8,42 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **Console abstraction layer** at `src/console/`. `src/core/` is now a pure chip library; both `nes.ts` and `poncho-nes.ts` compositions wire chips into a virtual console behind a shared `Console` interface.
+- **Poncho-NES** — second virtual console (status: `beta`). 4× linear resolution (1024×960), 32-bit RGBA palette, 32×32 sprites, custom PonchoROM cartridge format. The Ultra PPU additionally exposes a NES-compat sub-mode that boots ordinary `.nes` files at 4× pixel-block scale via the existing iNES mappers. See `docs/consoles.md` and `docs/poncho-rom.md`.
+- Console-selector UI: top sidebar icon (Lucide `cpu`, hotkey `0`) opens an L2 panel listing every console from `ALL_SPECS`. Selection persists in `general.selectedConsoleId`; the sidebar tooltip dynamically reflects the active console's name.
+- `ConsoleSpec` data type + [`src/console/specs.ts`](src/console/specs.ts) — single source of truth for UI panels and the README. `status` enum is `'working' | 'beta'`.
+- [`docs/consoles.md`](docs/consoles.md) — virtual-console catalogue and architecture rationale.
+- [`docs/poncho-rom.md`](docs/poncho-rom.md) — full design spec for the PonchoROM format.
+- PonchoROM header parser + writer at [`src/core/cart-poncho/`](src/core/cart-poncho/). 29 unit tests cover round-trip, every header field, accept/reject paths, CRC32, and alignment errors.
+- 2C02-Ultra PPU at [`src/core/ppu-ultra/`](src/core/ppu-ultra/) — 1024×960 framebuffer, NES-compatible scanline timing, NES-shaped 32-byte palette RAM, register file for `$2000` (auto-increment), `$2006` (VRAM address latch), `$2007` (auto-incrementing data write). Master palette stored as ABGR Uint32.
+- BG tile-render pipeline in the Ultra PPU: 32×32 8 bpp tiles fetched from cartridge CHR, 30×32 nametable cells, NES-style attribute-table decode → sub-palette selection (4 sub-palettes × 4 colours), eager full-frame render at vblank-start. Tile-pixel values currently masked `& 3` to fit NES-shape sub-palettes; expansion to 256-entry sub-palettes is additive.
+- Sprite OAM + sprite render path: 64 sprites × 8 bytes (Poncho-NES layout: y(16), x(16), tile(16), attr, size). Power-on OAM = `0xFF` so uninitialised sprites are off-screen. Registers `$2003` OAMADDR / `$2004` OAMDATA implemented; `$4014` OAM DMA copies 512 bytes from a CPU page. Sprite renderer: 32×32 sprites only (v1), per-spec attr bits (sub-palette in 0-1, BG priority in 2 — not yet enforced — flip-H in 3, flip-V in 4), sprite-pixel-0 = transparent. Drawn after BG, no per-scanline limit yet.
+- Full PPU register file: `$2000` PPUCTRL (all bits decoded — base nametable, VRAM increment, BG/sprite pattern bases, sprite size, NMI enable), `$2001` PPUMASK (BG/sprite enable + greyscale + emphasis tracked), `$2002` PPUSTATUS (vblank flag, sprite-0 hit, sprite overflow; reading clears vblank + the $2005/$2006 toggle), `$2005` PPUSCROLL (two-write X then Y, toggle shared with `$2006`).
+- NMI delivery: `PpuUltra.setNmiCallback()` wired by `PonchoNes` to `cpu.triggerNmi()`. NMI fires at vblank-start when PPUCTRL bit 7 is set; flags clear at the pre-render scanline.
+- BG scrolling: per-pixel BG render with `scrollX` / `scrollY` offsets. Source coords wrap at the single-screen nametable edge (4-screen / mirroring lands when needed).
+- New synthetic test ROM `tests/roms/poncho/nmi-scroll.poncho` — PRG enables NMI, NMI handler increments a zero-page counter and writes the new scroll value via `$2005`. Integration test runs 9 frames and verifies the BG has shifted by 8 pixels.
+- **NES-compat sub-mode** in the Ultra PPU. Poncho-NES now boots iNES `.nes` files alongside `.poncho` ROMs:
+  - `PpuUltra.setNesCompat(true)` switches the renderer to walk 8×8 2 bpp NES tile data, painting each NES pixel as a 4×4 block in the 1024×960 framebuffer
+  - CHR fetches go through `mapper.ppuRead()` so existing iNES mappers (NROM, MMC1, UxROM, CNROM, MMC3, AxROM) work unchanged
+  - Built-in NES master palette at [`src/core/ppu-ultra/nes-master-palette.ts`](src/core/ppu-ultra/nes-master-palette.ts) — 64 RGBA entries derived from `src/core/ppu/palette.ts`
+  - Sprite render in compat mode: 64 × 4-byte NES OAM entries, 8×8 sprites only (8×16 pending), per-NES attribute bits (sub-palette, flip-H bit 6, flip-V bit 7), drawn after BG
+  - OAM DMA size selects 256 vs 512 bytes based on the compat flag
+  - `PonchoNes.loadRom` magic-byte sniffs: `PNCH` → native PonchoROM path; `NES\x1A` → iNES NROM/MMC1/etc. via the existing `Cartridge` wrapper, with the Ultra PPU configured for compat
+  - Bus accepts a structural `BusCartridge { mapper }` so iNES and PonchoROM cartridges share routing
+- New synthetic iNES test ROM `tests/roms/poncho/compat-bg.nes` (NROM, 24 KB). Integration test loads it through `PonchoNes`, runs a frame, and verifies every pixel is `NES_PALETTE[1]` (master index 1, dark blue) — the BG → CHR → palette → master pipeline.
+- Pending compat features (next batch): sprite-0 hit, 8×16 sprite mode, MMC3 IRQ counter accuracy, per-scanline timing, conversion CLI (`scripts/poncho-convert.ts`).
+- **Console-selector UI**: a new sidebar icon at the top (Lucide `cpu`, hotkey `0`) opens an L2 panel listing every console from `ALL_SPECS` with name, description, status, PPU, and cart format. Clicking switches the active runtime — the App re-instantiates the chosen console class (`Nes` or `PonchoNes`), persists the selection in `general.selectedConsoleId`, and the sidebar tooltip dynamically reflects the active console name. Switching ejects any loaded ROM (different consoles accept different formats); the user re-picks from the library.
+- PonchoMapper stub at [`src/core/mappers-poncho/`](src/core/mappers-poncho/) (flat PRG mirroring across $8000-$FFFF, no banking) and PonchoCartridge wrapper at [`src/core/cart-poncho/cartridge.ts`](src/core/cart-poncho/cartridge.ts).
+- PonchoCpuBus at [`src/core/bus-poncho/`](src/core/bus-poncho/) — Poncho-NES CPU memory map.
+- Poncho-NES composition at [`src/console/poncho-nes.ts`](src/console/poncho-nes.ts) — full chipset wired (CPU + APU + Ultra PPU + bus + PonchoMapper) with the same per-cycle CPU↔PPU↔APU sync model as the NES. `solid-bg.poncho` now boots through real 6502 PRG (a halt loop) instead of cycle-spinning the PPU directly.
+- Console-detection registry at [`src/console/detect.ts`](src/console/detect.ts) — magic-byte sniff routes iNES bytes to `Nes`, PonchoROM bytes to `PonchoNes`. Adding a new console is one line.
+- Three synthetic test ROMs (committed):
+  - `tests/roms/poncho/solid-bg.poncho` — halt-loop PRG, single-colour master palette. Verifies header parse, palette upload, BG-colour render path.
+  - `tests/roms/poncho/palette-write.poncho` — PRG writes a known index to `$3F00` via `$2006/$2007`, then halts. Verifies the full PRG → bus → PPU register-file → palette RAM → framebuffer pipeline.
+  - `tests/roms/poncho/solid-tile.poncho` — PRG installs palette + writes 1024 nametable bytes (NES-shaped attribute table included), then halts; CHR tile 0 is filled with pixel value 1. Verifies the BG tile renderer end-to-end (CHR fetch → attribute decode → palette lookup → framebuffer).
+  - `tests/roms/poncho/single-sprite.poncho` — PRG sets BG palette, sprite palette, and OAM[0..7] for one 32×32 sprite at (100, 80) using sprite sub-palette 0; halts. Verifies the OAM register file + sprite render path. Integration test counts exactly 1024 red pixels in the framebuffer.
+  - Built by `npm run gen:poncho:{solid-bg,palette-write,solid-tile,single-sprite}`. Integration tests in `tests/integration/poncho-synthetic.test.ts` re-load each ROM via `detectConsole` and check pixel output.
+- Shared `scripts/lib/png.ts` PNG encoder.
 - Poncho logo (light + dark variants) at `src/shells/web/ui/`; brand area in the title bar now shows the theme-matched logo SVG instead of the text glyph. Logo also added to the README.
 - [`ROADMAP.md`](ROADMAP.md) — themed list of near-term / mid-term / long-term work.
 - Architecture overview at [`docs/architecture.md`](docs/architecture.md) with data-flow and module-layering diagrams.
@@ -18,6 +54,7 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 - Sticky bottom status bar with a Settings → Appearance toggle to hide it.
 
 ### Changed
+- `src/core/nes.ts` moved to `src/console/nes.ts` and now formally implements the new `Console` interface. Behaviour unchanged; 7 import paths updated across `src/shells/`, `tests/`, and `scripts/`.
 - Each shell now owns its own App orchestrator and UI tree. `src/app.ts` and `src/ui/` moved into `src/shells/web/`. UI is no longer shared across shells.
 
 ## [0.1.0] — 2026-05-05

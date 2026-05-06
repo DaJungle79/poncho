@@ -32,7 +32,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "screenshot": "tsx scripts/render-screenshot.ts \"roms/Contra (USA).nes\" docs/screenshot.png 240 2"
+    "screenshot": "tsx scripts/render-screenshot.ts \"roms/Contra (USA).nes\" docs/screenshot.png 240 2",
+    "gen:poncho:solid-bg": "tsx scripts/gen-poncho-rom/solid-bg.ts",
+    "gen:poncho:palette-write": "tsx scripts/gen-poncho-rom/palette-write.ts",
+    "gen:poncho:solid-tile": "tsx scripts/gen-poncho-rom/solid-tile.ts",
+    "gen:poncho:single-sprite": "tsx scripts/gen-poncho-rom/single-sprite.ts",
+    "gen:poncho:nmi-scroll": "tsx scripts/gen-poncho-rom/nmi-scroll.ts",
+    "gen:poncho:compat-bg": "tsx scripts/gen-poncho-rom/compat-bg.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

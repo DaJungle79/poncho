@@ -8,6 +8,8 @@ This doc is intentionally informal and freely edited. Order inside each section 
 
 ## Near-term — likely next
 
+- **Poncho-NES → `working` status** — close the NES-compat gaps so it boots arbitrary `.nes` ROMs faithfully: sprite-0 hit, 8×16 sprite mode, MMC3 IRQ counter accuracy, per-scanline timing for mid-frame palette/scroll changes.
+- **`scripts/poncho-convert.ts`** — iNES → PonchoROM CLI (CHR upscaled to 32×32 8 bpp, PRG copied verbatim). The starting point for hand-painted art replacement.
 - **Sub-cycle bus alignment** — interleave CPU bus accesses with PPU dots and APU frame-counter clocking. Single rework that flips ~24 blargg sub-tests in `ppu_vbl_nmi`, `sprite_hit_tests`, `sprite_overflow`, `apu_test`. See [`DEFERRED.md`](DEFERRED.md).
 - **Save states** — serialize Nes state to a `Uint8Array`; restore from same. Per-slot persistence in browser storage.
 - **Battery-backed SRAM** — persist `prg-ram` for cartridges with non-volatile save (Zelda, Final Fantasy). Keyed by ROM SHA-1, stored alongside the library.
