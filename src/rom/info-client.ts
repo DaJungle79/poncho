@@ -17,31 +17,10 @@
  * interface and add one with `addSource(...)` if/when you want to talk
  * to ScreenScraper, TheGamesDB, a self-hosted JSON, etc.
  */
-import type { LoadedRom } from './loader';
+import type { LoadedRom, RomInfoSource, RomMeta } from '../domain/rom';
 
-export interface RomMeta {
-  /** Display title — e.g. "The Legend of Zelda". */
-  title: string;
-  /** Short subtitle (region, revision, etc.) — e.g. "USA · Rev A". Null hides it. */
-  subtitle: string | null;
-  /** Optional rich fields populated by remote sources. */
-  year?: number;
-  publisher?: string;
-  developer?: string;
-  genre?: string;
-  /** Where the metadata came from. Useful for debugging. */
-  source: 'cache' | 'remote' | 'filename';
-}
-
-export interface RomInfoSource {
-  readonly name: string;
-  /**
-   * Look up metadata. Return `null` if not found (we'll try the next
-   * source). Throw on transient errors (the client will swallow + try
-   * the next source).
-   */
-  fetch(args: { hash: string; filename: string }): Promise<RomMeta | null>;
-}
+// Re-export so existing callers keep working without an import update.
+export type { RomMeta, RomInfoSource };
 
 const CACHE_KEY_PREFIX = 'poncho.rominfo.';
 

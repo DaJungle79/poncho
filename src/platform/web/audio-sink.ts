@@ -1,4 +1,4 @@
-import type { AudioSink } from './audio-sink';
+import type { AudioSink } from '../../audio/audio-sink';
 
 /**
  * Web Audio sink using an AudioWorklet for low-latency playback.

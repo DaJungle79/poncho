@@ -5,6 +5,9 @@ import path from 'node:path';
 const ROMS_DIR = path.resolve(process.cwd(), 'roms');
 
 export default defineConfig({
+  // Base URL prefix for the built app. Defaults to "/" for local dev.
+  // CI sets VITE_BASE_PATH=/poncho/ when deploying to GitHub Pages.
+  base: process.env.VITE_BASE_PATH ?? '/',
   plugins: [
     {
       name: 'poncho-serve-roms',

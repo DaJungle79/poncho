@@ -17,23 +17,21 @@
  * the status line. Nothing is persisted on failure.
  */
 
+import type { StoredRomEntry } from '../../domain/rom';
+import type { RomLibrary } from '../types';
+
+// Re-export so existing callers keep working.
+export type { StoredRomEntry };
+
 const DB_NAME = 'poncho-roms';
 const DB_VERSION = 1;
 const STORE = 'roms';
-
-/** Public summary of a stored ROM (no bytes). */
-export interface StoredRomEntry {
-  name: string;
-  size: number;
-  /** Unix timestamp (ms) when the ROM was added. */
-  addedAt: number;
-}
 
 interface StoredRomRecord extends StoredRomEntry {
   data: ArrayBuffer;
 }
 
-export class BrowserRomStorage {
+export class WebRomLibrary implements RomLibrary {
   /** Lazily-opened DB connection. Re-uses the same handle for all calls. */
   private dbPromise: Promise<IDBDatabase> | null = null;
 

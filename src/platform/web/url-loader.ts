@@ -1,5 +1,6 @@
 import { validateInes } from './ines-validator';
-import type { LoadedRom, RomLoader } from './loader';
+import type { LoadedRom } from '../../domain/rom';
+import type { RomLoader } from '../../rom/loader';
 
 export class UrlRomLoader implements RomLoader {
   readonly id = 'url';

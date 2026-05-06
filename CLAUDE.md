@@ -39,30 +39,61 @@ The CPU is the master clock. **Every CPU bus access ticks the rest of the system
 ### Module layout
 
 ```
-src/core/
-  cpu/        6502 core. flags · addressing · instructions · opcodes · cpu · disasm
-  ppu/        2C02. registers · timing · ppu · palette · render(stub)
-  apu/        2A03 audio. Stubs — Phase 7.
-  bus/        cpu-bus + ppu-bus. Each routes to mapper for cart space.
-  cart/       iNES parser, Cartridge wrapper, Mapper interface.
-  mappers/    NROM(0), MMC1(1), CNROM(3). Registered via mappers/index.ts.
-  input/      Controller (NES protocol) + ControllerSource interface + KeyboardSource.
-  nes.ts      Top-level wiring. Sets cpu.tickCallback, ppu.nmiCallback, oamDmaCallback.
+src/
+  domain/             Platform-agnostic types. Pure interfaces only.
+    rom.ts              LoadedRom · RomMeta · StoredRomEntry · RomInfoSource
 
-src/renderer/
-  frame-buffer        Uint32 pixel store + size constants.
-  stage               RenderStage interface (shared by Filter and Scaler).
-  scalers/            Scaler interface + NearestNeighborScaler 1x/2x/4x + registry.
-  filters/            Filter interface + empty registry (Phase 11+).
-  renderer            RenderPipeline composition (preFilters, scaler, postFilters).
-  canvas-renderer     Canvas2D blit target.
+  core/                 Emulator core (no DOM / Node deps).
+    cpu/                6502: flags · addressing · instructions · opcodes · cpu · disasm
+    ppu/                2C02: registers · timing · ppu · palette · render
+    apu/                2A03 audio: 5 channels + frame-counter + mixer + filters
+    bus/                cpu-bus + ppu-bus. Each routes to mapper for cart space.
+    cart/               iNES parser, Cartridge wrapper, Mapper interface.
+    mappers/            NROM(0), MMC1(1), UxROM(2), CNROM(3), MMC3(4), AxROM(7).
+    input/              Controller + ControllerSource interface + KeyboardSource.
+    nes.ts              Top-level wiring. Sets cpu.tickCallback, ppu.nmiCallback, etc.
 
-src/audio/            AudioSink interface + WebAudioSink stub.
-src/config/           localStorage-backed Config with schema version + migration.
-src/rom/              URL / file / local /roms loaders + iNES validator.
-src/debug/            leveled per-subsystem logger + tracer (capture wired but unused).
-src/main.ts           Browser bootstrap.
+  renderer/             Pure rendering pipeline. Reusable by every shell.
+    frame-buffer        Uint32 pixel store + size constants.
+    stage               RenderStage interface (shared by Filter and Scaler).
+    scalers/            Scaler interface + NearestNeighborScaler 1x/2x/4x + registry.
+    filters/            Filter interface + empty registry (CRT / NTSC future).
+    renderer            RenderPipeline composition (preFilters, scaler, postFilters).
+    canvas-renderer     Canvas2D blit target. Reusable in any DOM context.
+
+  audio/                AudioSink interface (pure — no implementation here).
+  config/               Storage-backed Config with schema version + migration.
+  rom/                  Loaders + iNES validator + RomInfoClient.
+  debug/                Leveled per-subsystem logger + tracer.
+  ui/                   DOM panels + sidebar + icons. Reusable in Electron renderer.
+
+  platform/             Shell-specific implementations of the Platform interface.
+    types.ts            Platform · RomLibrary · ServerRomLoader · FilePicker.
+    web/                Web-shell pieces:
+      audio-sink          WebAudioSink (AudioWorklet + Web Audio)
+      rom-library         WebRomLibrary (IndexedDB)
+      server-roms         WebServerRomLoader (fetches /roms/ via Vite middleware)
+      file-picker         WebFilePicker (programmatic <input type=file>)
+      url-loader          fetch helper used by server-roms
+      ines-validator      shared iNES magic check
+      index.ts            createWebPlatform() factory
+
+  shells/               Per-shell entry points.
+    web/main.ts         Bootstraps web platform → App → run().
+
+  app.ts                Cross-platform App orchestrator. Takes a Platform + DOM refs.
+                        Owns the ConfigStore, Nes, renderer, panels, run loop.
 ```
+
+### Decoupling — adding a new shell
+
+The emulator core, renderer, audio mixer, ROM info client, and DOM-based UI panels all live above `src/platform/` — they have no shell-specific dependencies. To add an Electron / Tauri / native shell:
+
+1. Implement `Platform` from `src/platform/types.ts` (provide audio sink, config Storage, RomLibrary, FilePicker, optional ServerRomLoader)
+2. Add `src/shells/<name>/main.ts` that builds the platform, instantiates `App`, calls `run()`
+3. Re-use everything in `src/app.ts`, `src/ui/`, `src/core/`, `src/renderer/`, `src/audio/audio-sink.ts`
+
+The DOM-heavy UI (sidebar + sliding panels) reuses cleanly inside any Chromium-based renderer (web, Electron, Tauri).
 
 ### Why some addressing modes have "Write" twins (`AbsoluteX` / `AbsoluteXWrite`)
 
@@ -74,10 +105,14 @@ The PPU's `tick()` returns `true` on the dot that starts vblank. `Nes` latches t
 
 ### ROM loading
 
-Three sources, all returning `LoadedRom { name, source, data }`:
-- `UrlRomLoader` — `fetch()` + iNES validation.
-- `FileRomLoader` — `<input type=file>`.
-- `LocalRomLoader` — reads `/roms/*` served by a Vite dev-server middleware in `vite.config.ts` that exposes a top-level `roms/` directory at `/roms/` (and a JSON listing at `/roms/`).
+ROM loading is reached through the `Platform` interface (`src/platform/types.ts`). Each implementation lives under `src/platform/<shell>/`. The web shell wires up:
+
+- `WebFilePicker` — programmatic `<input type="file">`. Used for "upload" actions.
+- `WebRomLibrary` — IndexedDB-backed library that stores uploaded ROMs across browser sessions; the SHA-1 of the bytes is the key.
+- `WebServerRomLoader` — fetches `/roms/<file>` from the Vite dev-server middleware in `vite.config.ts`, which exposes the top-level `roms/` directory (and a JSON listing at `/roms/`). The UI hides the section when `Platform.serverRoms` is `null` (e.g. desktop shells).
+- `UrlRomLoader` — internal `fetch()` helper used by `WebServerRomLoader`. iNES magic check lives in `ines-validator.ts`.
+
+All these return `LoadedRom { name, source, data }`. Adding a desktop shell means writing `src/platform/electron/` (or similar) with file-system-backed equivalents and a `createElectronPlatform()` factory.
 
 **Two ROM directories** (different purposes, both gitignored except `.gitkeep`):
 - `/roms/` — **games**, served by Vite at `/roms/*` for the browser UI.
@@ -113,3 +148,16 @@ Each entry has *what*, *why deferred*, and *how to verify a fix*. **When closing
 ## Phase numbering
 
 Development is sequenced 0-11 in the original plan; Phases 0-3 are done (scaffold + CPU + skeletal PPU). Currently entering Phase 4 (PPU rendering pipeline). Phases 5-11 are APU, more mappers, config UI, debug panel, polish. The phase numbers are referenced in JSDoc comments scattered through stub code (e.g. "Phase 4 fills this in").
+
+
+## Keep the docs in sync
+
+Whenever you change project structure, add/remove features, or alter visible behavior, update these three files in the same change set so future sessions stay current:
+
+- **`README.md`** — feature lists, mapper table, controls, browser support, screenshot, "Adding a new shell" example. The user-facing front door.
+- **`CHANGELOG.md`** — add or update an entry under `## [Unreleased]`. Promote it to a versioned heading when cutting a release.
+- **`docs/architecture.md`** — module layering, data-flow diagram, ROM-loading paths. If you move modules around or add a new top-level layer, the diagrams need to follow.
+
+If the change is structural (renaming/moving modules, changing the `Platform` interface, altering the per-cycle sync model), also update the relevant section of this file (`CLAUDE.md`) so the architecture overview here doesn't drift.
+
+For deferred work / known gaps, the home is `DEFERRED.md`. When closing one of those, update it instead of silently deleting the entry — the *why deferred* and *how to verify* notes are part of the project's institutional memory.

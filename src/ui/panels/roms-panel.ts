@@ -1,17 +1,15 @@
 import { gameIcon, mountLucideIcons } from '../icons';
 import type { Panel } from '../panel-stack';
-import type { LocalRomLoader } from '../../rom/local-loader';
-import type { FileRomLoader } from '../../rom/file-loader';
-import type { BrowserRomStorage, StoredRomEntry } from '../../rom/browser-storage';
-import type { LoadedRom } from '../../rom/loader';
+import type { FilePicker, RomLibrary, ServerRomLoader } from '../../platform/types';
+import type { LoadedRom, StoredRomEntry } from '../../domain/rom';
 
 export interface RomsPanelDeps {
-  /** Reads ROMs from the project's `/roms/` folder via the dev server. */
-  localLoader: LocalRomLoader;
-  /** Validates + reads an uploaded `<input type=file>` File. */
-  fileLoader: FileRomLoader;
-  /** Persistent IndexedDB storage for uploaded ROMs. */
-  storage: BrowserRomStorage;
+  /** Persistent local library — uploaded ROMs (web: IndexedDB). */
+  romLibrary: RomLibrary;
+  /** Server-folder ROM loader. `null` on shells without a dev server (Electron). */
+  serverRoms: ServerRomLoader | null;
+  /** "Open file" dialog. */
+  filePicker: FilePicker;
   /** Called when a ROM has been loaded successfully. */
   onLoaded: (rom: LoadedRom) => void | Promise<void>;
   /** Power / Reset / Pause callbacks. Pause toggles. */
@@ -44,7 +42,8 @@ export class RomsPanel implements Panel {
 
   private readonly browserList: HTMLUListElement;
   private readonly serverList: HTMLUListElement;
-  private readonly fileInput: HTMLInputElement;
+  private readonly serverSection: HTMLElement;
+  private readonly btnUpload: HTMLButtonElement;
   private readonly status: HTMLDivElement;
   private readonly btnPower: HTMLButtonElement;
   private readonly btnReset: HTMLButtonElement;
@@ -61,14 +60,13 @@ export class RomsPanel implements Panel {
         <section class="rom-section">
           <h3><i data-lucide="hard-drive"></i><span>Browser storage</span></h3>
           <ul class="rom-list" data-browser-list></ul>
-          <label class="file-button file-button-compact">
+          <button type="button" class="file-button file-button-compact" data-upload>
             <i data-lucide="upload"></i>
             <span>Upload .nes</span>
-            <input type="file" accept=".nes" data-file hidden />
-          </label>
+          </button>
         </section>
 
-        <section class="rom-section">
+        <section class="rom-section" data-server-section>
           <h3><i data-lucide="folder"></i><span>Server</span> <span class="hint">/roms/</span></h3>
           <ul class="rom-list" data-server-list></ul>
         </section>
@@ -97,11 +95,17 @@ export class RomsPanel implements Panel {
 
     this.browserList = this.root.querySelector<HTMLUListElement>('[data-browser-list]')!;
     this.serverList = this.root.querySelector<HTMLUListElement>('[data-server-list]')!;
-    this.fileInput = this.root.querySelector<HTMLInputElement>('[data-file]')!;
+    this.serverSection = this.root.querySelector<HTMLElement>('[data-server-section]')!;
+    this.btnUpload = this.root.querySelector<HTMLButtonElement>('[data-upload]')!;
     this.status = this.root.querySelector<HTMLDivElement>('[data-status]')!;
     this.btnPower = this.root.querySelector<HTMLButtonElement>('[data-power]')!;
     this.btnReset = this.root.querySelector<HTMLButtonElement>('[data-reset]')!;
     this.btnPause = this.root.querySelector<HTMLButtonElement>('[data-pause]')!;
+
+    // Hide the Server section on platforms that have no dev-server-style
+    // ROM loader (e.g. Electron). The platform passes `serverRoms: null`
+    // and the section disappears entirely.
+    if (!this.deps.serverRoms) this.serverSection.hidden = true;
 
     this.bindEvents();
   }
@@ -127,7 +131,7 @@ export class RomsPanel implements Panel {
     this.browserList.innerHTML = '<li class="rom-empty">…</li>';
     let entries: StoredRomEntry[] = [];
     try {
-      entries = await this.deps.storage.list();
+      entries = await this.deps.romLibrary.list();
     } catch (err) {
       this.browserList.innerHTML =
         `<li class="rom-empty">Storage unavailable: ${(err as Error).message}</li>`;
@@ -168,7 +172,7 @@ export class RomsPanel implements Panel {
   private async loadFromBrowser(name: string): Promise<void> {
     this.setStatus(`Loading ${name}…`);
     try {
-      const data = await this.deps.storage.get(name);
+      const data = await this.deps.romLibrary.get(name);
       if (!data) {
         this.setStatus(`${name} is gone from storage. Refreshing.`);
         await this.refreshBrowserList();
@@ -185,7 +189,7 @@ export class RomsPanel implements Panel {
 
   private async removeFromBrowser(name: string): Promise<void> {
     try {
-      await this.deps.storage.remove(name);
+      await this.deps.romLibrary.remove(name);
       await this.refreshBrowserList();
       this.setStatus(`Removed ${name} from browser storage.`);
     } catch (err) {
@@ -196,10 +200,11 @@ export class RomsPanel implements Panel {
   // ----- Server list -------------------------------------------------------
 
   private async refreshServerList(): Promise<void> {
+    if (!this.deps.serverRoms) return;
     this.serverList.innerHTML = '<li class="rom-empty">Scanning…</li>';
     let files: string[] = [];
     try {
-      files = await this.deps.localLoader.list();
+      files = await this.deps.serverRoms.list();
     } catch {
       this.serverList.innerHTML = '<li class="rom-empty">Server unreachable.</li>';
       return;
@@ -227,9 +232,10 @@ export class RomsPanel implements Panel {
   }
 
   private async loadFromServer(filename: string): Promise<void> {
+    if (!this.deps.serverRoms) return;
     this.setStatus(`Loading ${filename}…`);
     try {
-      const rom = await this.deps.localLoader.load(filename);
+      const rom = await this.deps.serverRoms.load(filename);
       await this.deps.onLoaded(rom);
       this.setStatus(`Loaded ${rom.name}`);
       this.refreshButtonStates();
@@ -241,24 +247,29 @@ export class RomsPanel implements Panel {
   // ----- Upload + playback wiring ------------------------------------------
 
   private bindEvents(): void {
-    this.fileInput.addEventListener('change', async () => {
-      const file = this.fileInput.files?.[0];
-      if (!file) return;
-      this.setStatus(`Reading ${file.name}…`);
+    this.btnUpload.addEventListener('click', async () => {
+      this.setStatus('Choose a .nes file…');
+      let rom: LoadedRom | null;
       try {
-        const rom = await this.deps.fileLoader.load(file);
-        // Persist to IndexedDB *before* loading into the emulator so a
+        rom = await this.deps.filePicker.pick();
+      } catch (err) {
+        this.setStatus(`Failed: ${(err as Error).message}`);
+        return;
+      }
+      if (!rom) {
+        this.setStatus('Upload cancelled.');
+        return;
+      }
+      try {
+        // Persist to the library *before* loading into the emulator so a
         // failure to start the game doesn't lose the upload.
-        await this.deps.storage.add(rom.name, rom.data);
+        await this.deps.romLibrary.add(rom.name, rom.data);
         await this.refreshBrowserList();
         await this.deps.onLoaded(rom);
         this.setStatus(`Loaded ${rom.name} (saved to browser storage)`);
         this.refreshButtonStates();
       } catch (err) {
         this.setStatus(`Failed: ${(err as Error).message}`);
-      } finally {
-        // Reset the input so re-uploading the same file fires `change` again.
-        this.fileInput.value = '';
       }
     });
 

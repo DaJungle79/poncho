@@ -1,4 +1,4 @@
-import { isInes } from '../core/cart/ines';
+import { isInes } from '../../core/cart/ines';
 
 export class InvalidRomError extends Error {
   constructor(message: string) {
