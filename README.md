@@ -177,7 +177,9 @@ Everything under `src/core/`, `src/renderer/`, `src/audio/`, `src/config/`, `src
 
 ## Roadmap
 
-Everything missing or imperfect is logged in [`DEFERRED.md`](DEFERRED.md), categorized and explained. Headline items: sub-cycle PPU/APU timing (would unlock the remaining blargg synthetic-timing tests), a desktop / Electron build, save states + battery-backed SRAM, CRT post-processing filter, a debug overlay (PPU pattern viewer, OAM viewer, CPU trace).
+Where Poncho is heading lives in [`ROADMAP.md`](ROADMAP.md), grouped by theme (near-term / mid-term / long-term). Headline items: save states + battery-backed SRAM, sub-cycle PPU/APU timing rework, more mappers (MMC2 / MMC5 / VRC6), CRT post-processing, debug overlay, gamepad support, an Electron / Tauri shell.
+
+Bugs and known gaps in *shipped* code live separately in [`DEFERRED.md`](DEFERRED.md) — every entry has *what*, *why deferred*, and *how to verify a fix*.
 
 Pull requests welcome.
 

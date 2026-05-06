@@ -8,6 +8,7 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- [`ROADMAP.md`](ROADMAP.md) — themed list of near-term / mid-term / long-term work.
 - Architecture overview at [`docs/architecture.md`](docs/architecture.md) with data-flow and module-layering diagrams.
 - GitHub Pages deployment workflow (`.github/workflows/deploy.yml`).
 - Browser-support matrix in the README.
