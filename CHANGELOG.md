@@ -7,6 +7,8 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-05-06
+
 ### Added
 - **Console abstraction layer** at `src/console/`. `src/core/` is now a pure chip library; both `nes.ts` and `poncho-nes.ts` compositions wire chips into a virtual console behind a shared `Console` interface.
 - **Poncho-NES** — second virtual console (status: `beta`). 4× linear resolution (1024×960), 32-bit RGBA palette, 32×32 sprites, custom PonchoROM cartridge format. The Ultra PPU additionally exposes a NES-compat sub-mode that boots ordinary `.nes` files at 4× pixel-block scale via the existing iNES mappers. See `docs/consoles.md` and `docs/poncho-rom.md`.
@@ -85,5 +87,6 @@ First public release.
 - Pluggable rendering pipeline: separate filter and scaler stages.
 - Pluggable RomInfo sources behind a unified cache.
 
-[Unreleased]: https://github.com/DaJungle79/poncho/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/DaJungle79/poncho/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/DaJungle79/poncho/releases/tag/v0.2.0
 [0.1.0]: https://github.com/DaJungle79/poncho/releases/tag/v0.1.0
