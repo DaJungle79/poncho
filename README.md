@@ -50,19 +50,16 @@ Open <http://localhost:5173>. Click the cassette icon in the left sidebar to ope
 
 ### User interface
 
-- **Retro NES aesthetic** — `Press Start 2P` for headers, `JetBrains Mono` for data, NES-palette colours, subtle scanline overlay
+- **Retro NES aesthetic** 
 - **Light + dark themes** — switchable in Settings, persisted across reloads
-- **Three-level sliding panels** — thin sidebar + overlay panels that slide on top of the canvas (no reflow); click the canvas to dismiss
-- **Big game title above the screen** — auto-extracted from filename via the RomInfo client (No-Intro / GoodNES naming conventions); cached by SHA-1 in localStorage
 - **Rebindable keyboard controls** — click any binding, press the new key
 - **Adjustable scale** (1×, 2×, 4× nearest-neighbour) and audio volume
 
 ### ROM management
 
-- **Browser storage** — uploaded `.nes` files persist in IndexedDB across browser sessions; size limit only by the browser's quota (typically tens of MB)
+- **Browser storage** — uploaded `.nes` files across browser sessions; s
 - **Server folder** — files placed in `roms/` are served by the Vite dev middleware (development only)
-- **Smart filename parsing** — `Contra (USA) [!].nes` → title "Contra", subtitle "USA"
-- **Persistent metadata cache** — every ROM is hashed once; metadata reused on subsequent loads
+
 
 ### Architecture
 
