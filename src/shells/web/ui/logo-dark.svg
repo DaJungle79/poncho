@@ -1,0 +1,65 @@
+<svg width="800" height="800" viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <clipPath id="torso-clip">
+            <path d="M 280 190 L 340 160 L 400 230 L 460 160 L 520 190 L 520 400 L 400 580 L 280 400 Z" />
+        </clipPath>
+        <clipPath id="left-sleeve-clip">
+            <path d="M 280 190 L 220 220 L 160 360 L 220 440 L 280 400 Z" />
+        </clipPath>
+        <clipPath id="right-sleeve-clip">
+            <path d="M 520 190 L 580 220 L 640 360 L 580 440 L 520 400 Z" />
+        </clipPath>
+    </defs>
+
+    <g transform="translate(0, 40)">
+        <g clip-path="url(#left-sleeve-clip)">
+            <rect x="0" y="0" width="400" height="800" fill="#267baf" />
+            <path d="M 150 350 L 210 270 L 250 330 L 300 270" stroke="#ffffff" stroke-width="36" fill="none" stroke-linejoin="round" stroke-linecap="round" />
+            <path d="M 150 350 L 210 270 L 250 330 L 300 270" stroke="#f6b032" stroke-width="16" fill="none" stroke-linejoin="round" stroke-linecap="round" />
+            
+            <path d="M 170 410 L 230 330 L 270 390 L 310 330" stroke="#ffffff" stroke-width="36" fill="none" stroke-linejoin="round" stroke-linecap="round" />
+            <path d="M 170 410 L 230 330 L 270 390 L 310 330" stroke="#22b2a1" stroke-width="16" fill="none" stroke-linejoin="round" stroke-linecap="round" />
+        </g>
+
+        <g clip-path="url(#right-sleeve-clip)">
+            <rect x="400" y="0" width="400" height="800" fill="#267baf" />
+            <path d="M 500 270 L 550 330 L 590 270 L 650 350" stroke="#ffffff" stroke-width="36" fill="none" stroke-linejoin="round" stroke-linecap="round" />
+            <path d="M 500 270 L 550 330 L 590 270 L 650 350" stroke="#f6b032" stroke-width="16" fill="none" stroke-linejoin="round" stroke-linecap="round" />
+            
+            <path d="M 490 330 L 530 390 L 570 330 L 630 410" stroke="#ffffff" stroke-width="36" fill="none" stroke-linejoin="round" stroke-linecap="round" />
+            <path d="M 490 330 L 530 390 L 570 330 L 630 410" stroke="#22b2a1" stroke-width="16" fill="none" stroke-linejoin="round" stroke-linecap="round" />
+        </g>
+
+        <g clip-path="url(#torso-clip)">
+            <rect x="0" y="0" width="800" height="800" fill="#e63e32" />
+            <path d="M 0 220 L 400 350 L 800 220 L 800 280 L 400 410 L 0 280 Z" fill="#f6b032" />
+            <path d="M 0 280 L 400 410 L 800 280 L 800 340 L 400 470 L 0 340 Z" fill="#22b2a1" />
+            <path d="M 320 140 L 400 240 L 480 140 Z" fill="#ffffff" />
+            
+            <path d="M 0 220 L 400 350 L 800 220" stroke="#ffffff" stroke-width="16" fill="none" stroke-linejoin="round" />
+            <path d="M 0 280 L 400 410 L 800 280" stroke="#ffffff" stroke-width="16" fill="none" stroke-linejoin="round" />
+            <path d="M 0 340 L 400 470 L 800 340" stroke="#ffffff" stroke-width="16" fill="none" stroke-linejoin="round" />
+            <path d="M 340 160 L 400 240 L 460 160" stroke="#ffffff" stroke-width="16" fill="none" stroke-linejoin="round" />
+        </g>
+
+        <line x1="280" y1="190" x2="280" y2="430" stroke="#ffffff" stroke-width="16" stroke-linecap="round" />
+        <line x1="520" y1="190" x2="520" y2="430" stroke="#ffffff" stroke-width="16" stroke-linecap="round" />
+
+        <path d="M 340 160 L 220 220 L 160 360 L 220 440 L 280 400 L 400 580 L 520 400 L 580 440 L 640 360 L 580 220 L 460 160 L 400 230 Z" 
+              stroke="#ffffff" stroke-width="24" fill="none" stroke-linejoin="round" />
+
+        <g transform="translate(0, 0)">
+            <path d="M 290 360 C 340 360 360 380 400 380 C 440 380 460 360 510 360 A 70 70 0 0 1 510 500 C 460 500 440 480 400 480 C 360 480 340 500 290 500 A 70 70 0 0 1 290 360 Z" 
+                  fill="#4b5158" stroke="#ffffff" stroke-width="20" stroke-linejoin="round" />
+            
+            <path d="M 280 400 L 300 400 L 300 420 L 320 420 L 320 440 L 300 440 L 300 460 L 280 460 L 280 440 L 260 440 L 260 420 L 280 420 Z" 
+                  fill="#353a40" stroke="#ffffff" stroke-width="10" stroke-linejoin="round" />
+            
+            <rect x="355" y="440" width="30" height="12" rx="6" fill="#353a40" stroke="#ffffff" stroke-width="8" />
+            <rect x="415" y="440" width="30" height="12" rx="6" fill="#353a40" stroke="#ffffff" stroke-width="8" />
+            
+            <circle cx="475" cy="450" r="18" fill="#e63e32" stroke="#ffffff" stroke-width="12" />
+            <circle cx="535" cy="415" r="18" fill="#e63e32" stroke="#ffffff" stroke-width="12" />
+        </g>
+    </g>
+</svg>

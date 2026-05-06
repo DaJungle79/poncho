@@ -1,4 +1,4 @@
-# Poncho
+# <img src="src/shells/web/ui/logo-light.svg" height="100" align="middle" alt="Poncho logo"> Poncho
 
 *A handcrafted Nintendo Entertainment System emulator, written in TypeScript, played in your browser.*
 

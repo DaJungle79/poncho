@@ -612,7 +612,7 @@ select:focus-visible {
   flex-direction: column;
   align-items: center;
   /* Bottom padding leaves room for the fixed-position status bar. */
-  padding: 20px 20px 32px;
+  padding: 0 20px 32px;
   gap: 12px;
 }
 html[data-status-bar='hidden'] .layout-main { padding-bottom: 20px; }
@@ -629,7 +629,7 @@ html[data-status-bar='hidden'] .layout-main { padding-bottom: 20px; }
   align-items: center;
   justify-content: center;
   gap: 14px;
-  padding: 6px 0 18px;
+  padding: 0 0 18px;
 }
 
 /* ----- Brand (no ROM loaded) ------------------------------------------- */
@@ -638,18 +638,12 @@ html[data-status-bar='hidden'] .layout-main { padding-bottom: 20px; }
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 6px;
 }
-.brand-glyph {
-  width: 32px;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent);
-  color: var(--bg);
-  font-family: var(--font-pixel);
-  font-size: 14px;
+.brand-logo {
+  height: 80px;
+  width: auto;
+  display: block;
 }
 .brand-name {
   font-family: var(--font-pixel);
@@ -678,7 +672,7 @@ html[data-status-bar='hidden'] .layout-main { padding-bottom: 20px; }
 .game-title-name {
   margin: 0;
   font-family: var(--font-pixel);
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1.15;
   letter-spacing: 1.5px;
   color: var(--fg);

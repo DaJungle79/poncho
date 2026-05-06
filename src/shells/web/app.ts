@@ -28,6 +28,8 @@ import { ControlsPanel } from './ui/panels/controls-panel';
 import { RomInfoClient } from '../../rom/info-client';
 import type { LoadedRom, RomMeta } from '../../domain/rom';
 import type { Platform } from '../../platform/types';
+import logoLight from './ui/logo-light.svg?url';
+import logoDark from './ui/logo-dark.svg?url';
 
 /**
  * Required DOM elements the App expects to find. The shell's
@@ -317,6 +319,8 @@ export class App {
 
   private applyTheme(theme: 'dark' | 'light'): void {
     document.documentElement.dataset.theme = theme;
+    const logo = document.getElementById('brand-logo') as HTMLImageElement | null;
+    if (logo) logo.src = theme === 'dark' ? logoDark : logoLight;
   }
 
   private applyStatusBar(visible: boolean): void {
