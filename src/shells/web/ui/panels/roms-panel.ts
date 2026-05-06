@@ -1,7 +1,7 @@
 import { gameIcon, mountLucideIcons } from '../icons';
 import type { Panel } from '../panel-stack';
-import type { FilePicker, RomLibrary, ServerRomLoader } from '../../platform/types';
-import type { LoadedRom, StoredRomEntry } from '../../domain/rom';
+import type { FilePicker, RomLibrary, ServerRomLoader } from '../../../../platform/types';
+import type { LoadedRom, StoredRomEntry } from '../../../../domain/rom';
 
 export interface RomsPanelDeps {
   /** Persistent local library — uploaded ROMs (web: IndexedDB). */

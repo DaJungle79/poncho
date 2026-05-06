@@ -1,5 +1,5 @@
-import type { Config, ThemeId } from '../../config/schema';
-import type { ConfigStore } from '../../config/store';
+import type { Config, ThemeId } from '../../../../config/schema';
+import type { ConfigStore } from '../../../../config/store';
 import { mountLucideIcons } from '../icons';
 import type { Panel } from '../panel-stack';
 

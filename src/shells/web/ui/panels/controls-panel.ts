@@ -1,7 +1,7 @@
-import type { Config, KeyBindings } from '../../config/schema';
-import type { ConfigStore } from '../../config/store';
-import { DEFAULT_PLAYER1_KEYS } from '../../config/defaults';
-import { NesButton } from '../../core/input/source';
+import type { Config, KeyBindings } from '../../../../config/schema';
+import type { ConfigStore } from '../../../../config/store';
+import { DEFAULT_PLAYER1_KEYS } from '../../../../config/defaults';
+import { NesButton } from '../../../../core/input/source';
 import { gameIcon, mountLucideIcons } from '../icons';
 import type { Panel } from '../panel-stack';
 

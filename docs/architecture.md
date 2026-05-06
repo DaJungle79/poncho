@@ -32,15 +32,15 @@ Frame end is latched inside the CPU's per-cycle tick callback the moment the PPU
 
 ## Module layering
 
-The codebase is layered so that everything below `src/platform/` is shell-agnostic. A new shell (Electron, Tauri, native) only needs to implement the `Platform` interface.
+The codebase is layered so that everything outside `src/platform/` and `src/shells/` is shell-agnostic. A new shell brings its own `Platform` factory *and* its own App + UI.
 
 ```mermaid
 flowchart TD
-    Shell["src/shells/web/main.ts<br/>(bootstrap)"] --> App["src/app.ts<br/>App orchestrator"]
-    Shell --> Platform["src/platform/web/<br/>WebAudioSink · WebRomLibrary<br/>WebServerRomLoader · WebFilePicker"]
+    Main["src/shells/web/main.ts<br/>(bootstrap)"] --> App["src/shells/web/app.ts<br/>App orchestrator"]
+    Main --> Platform["src/platform/web/<br/>WebAudioSink · WebRomLibrary<br/>WebServerRomLoader · WebFilePicker"]
+    App --> UI["src/shells/web/ui/<br/>Sidebar · sliding panels · icons"]
     App --> Core["src/core/<br/>Nes (CPU + PPU + APU + buses + mappers)"]
     App --> Renderer["src/renderer/<br/>FrameBuffer · Filter · Scaler · Canvas2DRenderer"]
-    App --> UI["src/ui/<br/>Sidebar · sliding panels · icons"]
     App --> Audio["src/audio/<br/>AudioSink interface"]
     App --> Config["src/config/<br/>ConfigStore (Storage-backed, versioned)"]
     App --> Rom["src/rom/<br/>RomInfoClient + cache"]
@@ -52,16 +52,14 @@ Things to know:
 
 - `src/core/` has no DOM, no Node, no fetch. The same `Nes` class drives the browser main loop *and* the headless integration tests.
 - `src/renderer/` is a pure pipeline (`preFilters → scaler → postFilters`). Each stage shares the `RenderStage` interface, so adding CRT / NTSC effects is "drop in a new filter, register it, list it in config".
-- `src/platform/types.ts` is the seam: `audio`, `configStorage`, `romInfoStorage`, `romLibrary`, `serverRoms`, `filePicker`. The web shell at `src/platform/web/` wires browser APIs to those slots.
-- `src/app.ts` takes a `Platform` plus a small `AppDom` of element refs. It owns the run loop and the panels but knows nothing about which shell it's running in.
+- `src/platform/types.ts` is the platform-API seam: `audio`, `configStorage`, `romInfoStorage`, `romLibrary`, `serverRoms`, `filePicker`. Implemented per-shell under `src/platform/<name>/`.
+- `src/shells/<name>/` is the *shell* seam: each shell owns its own bootstrap, App orchestrator, and UI tree. The web shell's App lives at `src/shells/web/app.ts`; its panels at `src/shells/web/ui/`. UI is intentionally **not** shared across shells — duplication is fine until two shells converge on a UI worth lifting out.
 
 ## Adding a shell
 
-1. Implement `Platform` from `src/platform/types.ts` (e.g. `src/platform/electron/index.ts`).
-2. Add a bootstrap entry under `src/shells/<name>/main.ts` that calls `new App(...).run()`.
-3. Re-use `src/core/`, `src/renderer/`, `src/audio/`, `src/ui/`, `src/app.ts`, and the panel components verbatim.
-
-The DOM-heavy UI (sidebar + sliding panels) reuses cleanly inside any Chromium-based renderer.
+1. Implement `Platform` from `src/platform/types.ts` under `src/platform/<name>/` (factory: `create<Name>Platform()`).
+2. Build `src/shells/<name>/main.ts` (bootstrap), `src/shells/<name>/app.ts` (orchestrator), and a `ui/` tree.
+3. Reuse `src/core/`, `src/renderer/`, `src/audio/`, `src/config/`, `src/rom/`, `src/domain/` verbatim.
 
 ## ROM loading paths
 

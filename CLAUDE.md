@@ -65,9 +65,8 @@ src/
   config/               Storage-backed Config with schema version + migration.
   rom/                  Loaders + iNES validator + RomInfoClient.
   debug/                Leveled per-subsystem logger + tracer.
-  ui/                   DOM panels + sidebar + icons. Reusable in Electron renderer.
 
-  platform/             Shell-specific implementations of the Platform interface.
+  platform/             Shell-specific platform-API implementations.
     types.ts            Platform · RomLibrary · ServerRomLoader · FilePicker.
     web/                Web-shell pieces:
       audio-sink          WebAudioSink (AudioWorklet + Web Audio)
@@ -78,22 +77,25 @@ src/
       ines-validator      shared iNES magic check
       index.ts            createWebPlatform() factory
 
-  shells/               Per-shell entry points.
-    web/main.ts         Bootstraps web platform → App → run().
-
-  app.ts                Cross-platform App orchestrator. Takes a Platform + DOM refs.
-                        Owns the ConfigStore, Nes, renderer, panels, run loop.
+  shells/               Per-shell entry points. Each shell owns its own
+                        App orchestrator and UI tree — no shared DOM code
+                        across shells. Duplication is fine; if a future
+                        shell wants different panels, it forks freely.
+    web/
+      main.ts             Bootstraps web platform → App → run().
+      app.ts              Web App orchestrator. Takes a Platform + DOM refs.
+                          Owns the ConfigStore, Nes, renderer, panels, run loop.
+      ui/                 DOM panels + sidebar + icons used by this shell.
 ```
 
 ### Decoupling — adding a new shell
 
-The emulator core, renderer, audio mixer, ROM info client, and DOM-based UI panels all live above `src/platform/` — they have no shell-specific dependencies. To add an Electron / Tauri / native shell:
+The emulator core, renderer, audio interface, ROM info client, and config store all live above `src/platform/` and `src/shells/` — they have no shell-specific dependencies. To add an Electron / Tauri / native shell:
 
-1. Implement `Platform` from `src/platform/types.ts` (provide audio sink, config Storage, RomLibrary, FilePicker, optional ServerRomLoader)
-2. Add `src/shells/<name>/main.ts` that builds the platform, instantiates `App`, calls `run()`
-3. Re-use everything in `src/app.ts`, `src/ui/`, `src/core/`, `src/renderer/`, `src/audio/audio-sink.ts`
+1. Implement `Platform` from `src/platform/types.ts` (provide audio sink, config Storage, RomLibrary, FilePicker, optional ServerRomLoader). Put it under `src/platform/<name>/` with a `create<Name>Platform()` factory.
+2. Build a shell directory under `src/shells/<name>/` with its own `main.ts`, `app.ts` (orchestrator), and `ui/` tree. Reuse everything under `src/core/`, `src/renderer/`, `src/audio/`, `src/config/`, `src/rom/`, `src/domain/`.
 
-The DOM-heavy UI (sidebar + sliding panels) reuses cleanly inside any Chromium-based renderer (web, Electron, Tauri).
+UI is **not** shared between shells — each shell owns its own `App` and panels. If two shells later converge on the same UI, you can extract a shared module then; until then, duplication beats a premature abstraction that constrains both shells.
 
 ### Why some addressing modes have "Write" twins (`AbsoluteX` / `AbsoluteXWrite`)
 

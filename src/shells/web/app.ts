@@ -11,23 +11,23 @@
  * Tauri's webview). For non-DOM shells, this class would be replaced
  * by a different orchestrator that consumes the same emulator core.
  */
-import { Nes } from './core/nes';
-import { KeyboardSource } from './core/input/keyboard-source';
-import { ConfigStore } from './config/store';
-import { Canvas2DRenderer } from './renderer/canvas-renderer';
-import { createScaler } from './renderer/scalers';
-import { createFilter } from './renderer/filters';
-import type { RenderPipeline } from './renderer/renderer';
-import { applyLogLevelsFromQuery, log } from './debug/logger';
+import { Nes } from '../../core/nes';
+import { KeyboardSource } from '../../core/input/keyboard-source';
+import { ConfigStore } from '../../config/store';
+import { Canvas2DRenderer } from '../../renderer/canvas-renderer';
+import { createScaler } from '../../renderer/scalers';
+import { createFilter } from '../../renderer/filters';
+import type { RenderPipeline } from '../../renderer/renderer';
+import { applyLogLevelsFromQuery, log } from '../../debug/logger';
 import { gameIcon, mountLucideIcons } from './ui/icons';
 import { PanelStack } from './ui/panel-stack';
 import { Sidebar } from './ui/sidebar';
 import { RomsPanel } from './ui/panels/roms-panel';
 import { SettingsPanel } from './ui/panels/settings-panel';
 import { ControlsPanel } from './ui/panels/controls-panel';
-import { RomInfoClient } from './rom/info-client';
-import type { LoadedRom, RomMeta } from './domain/rom';
-import type { Platform } from './platform/types';
+import { RomInfoClient } from '../../rom/info-client';
+import type { LoadedRom, RomMeta } from '../../domain/rom';
+import type { Platform } from '../../platform/types';
 
 /**
  * Required DOM elements the App expects to find. The shell's

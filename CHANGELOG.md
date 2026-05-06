@@ -12,6 +12,11 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 - GitHub Pages deployment workflow (`.github/workflows/deploy.yml`).
 - Browser-support matrix in the README.
 - `scripts/render-screenshot.ts` — headless single-frame renderer used to refresh the README screenshot.
+- Sidebar playback controls: Pause / Reset / Off — Eject buttons next to ROMs, with `1`–`5` keyboard shortcuts and instant retro tooltips.
+- Sticky bottom status bar with a Settings → Appearance toggle to hide it.
+
+### Changed
+- Each shell now owns its own App orchestrator and UI tree. `src/app.ts` and `src/ui/` moved into `src/shells/web/`. UI is no longer shared across shells.
 
 ## [0.1.0] — 2026-05-04
 

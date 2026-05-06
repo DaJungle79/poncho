@@ -2,12 +2,11 @@
  * Web shell entry point.
  *
  * Builds the web `Platform` (Web Audio + IndexedDB + localStorage +
- * dev-server `/roms/`) and hands it to the shared `App`. From here on,
- * everything lives in `src/app.ts` and `src/ui/` — both platform-
- * agnostic enough that an Electron renderer process could re-use them
- * verbatim by swapping in `createElectronPlatform()` instead.
+ * dev-server `/roms/`) and hands it to this shell's `App`, whose UI tree
+ * lives next door in `./ui/`. Other shells (Electron, Tauri, native) own
+ * their own App + UI under `src/shells/<name>/`.
  */
-import { App } from '../../app';
+import { App } from './app';
 import { createWebPlatform } from '../../platform/web';
 
 const $ = <T extends HTMLElement>(id: string): T => {

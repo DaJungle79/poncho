@@ -146,13 +146,13 @@ The important modules:
 | `src/renderer/`      | Filter and Scaler pipelines, kept separate so CRT/NTSC effects can plug in later |
 | `src/platform/types.ts` | Platform interface — implement this to add a new shell |
 | `src/platform/web/`  | Web-shell platform: AudioWorklet, IndexedDB, dev-server `/roms/`, `<input type=file>` |
-| `src/app.ts`         | Cross-platform App orchestrator. Takes a `Platform` and a set of DOM refs |
+| `src/shells/web/`    | Web shell: bootstrap, App orchestrator, and the DOM panel tree under `ui/` |
 
 If you'd rather skip ahead and read about *what's still missing*, that's in [`DEFERRED.md`](DEFERRED.md) — every known gap with *what*, *why deferred*, and *how a fix would be verified*.
 
 ## Adding a new shell
 
-The decoupling work is done. Building a desktop or alternate-frontend version means writing one factory:
+A shell consists of a `Platform` factory under `src/platform/<name>/` (audio, storage, ROM library, file picker) and a shell directory under `src/shells/<name>/` with its own `main.ts`, `app.ts`, and `ui/` tree. Sketch:
 
 ```ts
 // src/platform/electron/index.ts
@@ -162,17 +162,18 @@ export function createElectronPlatform(): Platform {
     configStorage:   new FsStorage('config.json'),
     romInfoStorage:  new FsStorage('rominfo.json'),
     romLibrary:      new ElectronRomLibrary(),   // ipcRenderer + fs
-    serverRoms:      null,                        // hides the Server section
+    serverRoms:      null,                       // hides the Server section
     filePicker:      new ElectronFilePicker(),   // dialog.showOpenDialog
   };
 }
 
-// src/shells/electron/renderer.ts
-const app = new App(createElectronPlatform(), /* same DOM refs */);
+// src/shells/electron/main.ts
+import { App } from './app';                     // shell-owned orchestrator
+const app = new App(createElectronPlatform(), /* shell-owned DOM refs */);
 app.run();
 ```
 
-Everything in `src/core/`, `src/renderer/`, `src/audio/`, `src/ui/`, `src/app.ts`, and the panel components is reused verbatim. No emulator changes required.
+Everything under `src/core/`, `src/renderer/`, `src/audio/`, `src/config/`, `src/rom/`, `src/domain/` is reused verbatim. UI is **not** shared across shells — each shell evolves its panels independently. If two shells eventually converge, lift the common pieces into a shared module then.
 
 ## Roadmap
 
