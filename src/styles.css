@@ -447,18 +447,6 @@ select:focus-visible {
 }
 .file-button-compact svg { width: 13px; height: 13px; }
 
-.rom-status {
-  margin-top: auto;
-  padding: 8px 10px;
-  background: var(--bg-deep);
-  border: 1px solid var(--line);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--fg-soft);
-  min-height: 32px;
-  word-break: break-word;
-}
-
 /* ----- Consoles panel ---------------------------------------------------- */
 
 .panel-hint {
@@ -702,6 +690,11 @@ select:focus-visible {
   /* Bottom padding leaves room for the fixed-position status bar. */
   padding: 0 20px 32px;
   gap: 12px;
+  /* Allow children to shrink below their intrinsic size — required so
+     the canvas can scale down on small viewports instead of overflowing. */
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 html[data-status-bar='hidden'] .layout-main { padding-bottom: 20px; }
 
@@ -716,8 +709,6 @@ html[data-status-bar='hidden'] .layout-main { padding-bottom: 20px; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  padding: 0 0 18px;
 }
 
 /* ----- Brand (no ROM loaded) ------------------------------------------- */
@@ -785,8 +776,21 @@ html[data-status-bar='hidden'] .layout-main { padding-bottom: 20px; }
 .screen-frame {
   background: var(--bg-deep);
   border: 1px solid var(--line);
-  padding: 16px;
-  box-shadow: 0 0 0 1px var(--accent) inset, 0 8px 30px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    inset 0 0 0 1px var(--panel-edge-glow),
+    var(--panel-shadow);
+  /* Centre the canvas inside the frame. flex-grow: 0 keeps the frame
+     from inflating past its content (we don't want the canvas to be
+     stretched up); flex-shrink: 1 lets it shrink on small viewports.
+     min-* on flex items is required so the shrink can take effect. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 1 auto;
+  min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 #screen {
@@ -794,6 +798,16 @@ html[data-status-bar='hidden'] .layout-main { padding-bottom: 20px; }
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   background: black;
+  /* The canvas's intrinsic dimensions (set per-scaler in JS) are the
+     CAP — never scaled up. On small viewports the browser scales it
+     DOWN, holding the 16:15 ratio (the same for NES 256×240 and
+     Poncho-NES 1024×960). image-rendering: pixelated keeps the look
+     crisp during downscaling. */
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 16 / 15;
 }
 
 /* Sticky status bar pinned to the viewport bottom. Sits on top of the

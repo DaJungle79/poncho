@@ -63,6 +63,7 @@ export class App {
   private readonly stack: PanelStack;
   private readonly sidebar: Sidebar;
   private readonly romsPanel: RomsPanel;
+  private readonly settingsPanel: SettingsPanel;
 
   // ----- Run-loop state ---------------------------------------------------
   private powered = false;
@@ -119,10 +120,12 @@ export class App {
       serverRoms: platform.serverRoms,
       filePicker: platform.filePicker,
       onLoaded: (rom) => this.loadRom(rom),
+      onStatus: (text) => this.setStatus(text),
     });
     this.stack.registerL2(this.romsPanel);
+    this.romsPanel.setConsoleId(this.config.get().general.selectedConsoleId);
 
-    const settingsPanel = new SettingsPanel({
+    this.settingsPanel = new SettingsPanel({
       config: this.config,
       onOpenControls: () => this.stack.toggleL3('controls'),
       onConfigChanged: (cfg) => {
@@ -133,7 +136,10 @@ export class App {
         this.applyStatusBar(cfg.general.showStatusBar);
       },
     });
-    this.stack.registerL2(settingsPanel);
+    this.stack.registerL2(this.settingsPanel);
+    // Apply scaler availability for the boot-time console (poncho-nes
+    // restricts to 1× since its native frame is already 1024×960).
+    this.settingsPanel.setConsoleId(this.config.get().general.selectedConsoleId);
 
     const controlsPanel = new ControlsPanel({
       config: this.config,
@@ -326,6 +332,8 @@ export class App {
     this.nes.setController(1, this.keyboard);
 
     this.sidebar.setTooltip('consoles', this.consoleLabelFromId(spec.id));
+    this.settingsPanel.setConsoleId(spec.id);
+    this.romsPanel.setConsoleId(spec.id);
     this.setStatus(`${spec.name} selected.`);
   }
 
@@ -336,7 +344,6 @@ export class App {
 
   private setStatus(text: string): void {
     this.dom.statusEl.textContent = text;
-    this.romsPanel.setStatus(text);
   }
 
   /** Toggle the game title block visibility + retrigger the slide-in animation. */

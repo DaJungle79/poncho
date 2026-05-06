@@ -1,6 +1,6 @@
-import { validateInes } from './ines-validator';
+import { validateRom } from './ines-validator';
 import type { LoadedRom } from '../../domain/rom';
-import type { FilePicker } from '../types';
+import type { FilePicker, FilePickerOptions } from '../types';
 
 /**
  * Web-shell implementation of `FilePicker`. Lazily creates a hidden
@@ -23,7 +23,8 @@ export class WebFilePicker implements FilePicker {
     this.input = input;
   }
 
-  pick(): Promise<LoadedRom | null> {
+  pick(options?: FilePickerOptions): Promise<LoadedRom | null> {
+    this.input.accept = (options?.accept ?? ['.nes']).join(',');
     return new Promise<LoadedRom | null>((resolve, reject) => {
       const cleanup = () => {
         this.input.removeEventListener('change', onChange);
@@ -38,7 +39,7 @@ export class WebFilePicker implements FilePicker {
         try {
           const buf = await file.arrayBuffer();
           const data = new Uint8Array(buf);
-          validateInes(data);
+          validateRom(data);
           resolve({ name: file.name, source: `file:${file.name}`, data });
         } catch (err) {
           reject(err);

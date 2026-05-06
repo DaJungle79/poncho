@@ -54,8 +54,16 @@ export interface ServerRomLoader {
  * to register an HTMLInputElement; non-web shells make `attachToElement`
  * a no-op.
  */
+export interface FilePickerOptions {
+  /**
+   * Filename extensions to advertise in the OS picker, e.g. `['.nes']`
+   * or `['.nes', '.poncho']`. Default: `['.nes']`.
+   */
+  accept?: string[];
+}
+
 export interface FilePicker {
-  pick(): Promise<LoadedRom | null>;
+  pick(options?: FilePickerOptions): Promise<LoadedRom | null>;
 }
 
 /**

@@ -12,6 +12,8 @@ export interface RomsPanelDeps {
   filePicker: FilePicker;
   /** Called when a ROM has been loaded successfully. */
   onLoaded: (rom: LoadedRom) => void | Promise<void>;
+  /** Optional callback for transient status messages (routed to the bottom status bar). */
+  onStatus?: (text: string) => void;
 }
 
 /**
@@ -38,7 +40,8 @@ export class RomsPanel implements Panel {
   private readonly serverList: HTMLUListElement;
   private readonly serverSection: HTMLElement;
   private readonly btnUpload: HTMLButtonElement;
-  private readonly status: HTMLDivElement;
+  private readonly uploadLabel: HTMLSpanElement;
+  private consoleId = 'nes';
 
   constructor(private readonly deps: RomsPanelDeps) {
     this.root = document.createElement('section');
@@ -53,7 +56,7 @@ export class RomsPanel implements Panel {
           <ul class="rom-list" data-browser-list></ul>
           <button type="button" class="file-button file-button-compact" data-upload>
             <i data-lucide="upload"></i>
-            <span>Upload .nes</span>
+            <span data-upload-label>Upload .nes</span>
           </button>
         </section>
 
@@ -61,8 +64,6 @@ export class RomsPanel implements Panel {
           <h3><i data-lucide="folder"></i><span>Server</span> <span class="hint">/roms/</span></h3>
           <ul class="rom-list" data-server-list></ul>
         </section>
-
-        <div class="rom-status" data-status></div>
       </div>
     `;
 
@@ -76,7 +77,7 @@ export class RomsPanel implements Panel {
     this.serverList = this.root.querySelector<HTMLUListElement>('[data-server-list]')!;
     this.serverSection = this.root.querySelector<HTMLElement>('[data-server-section]')!;
     this.btnUpload = this.root.querySelector<HTMLButtonElement>('[data-upload]')!;
-    this.status = this.root.querySelector<HTMLDivElement>('[data-status]')!;
+    this.uploadLabel = this.root.querySelector<HTMLSpanElement>('[data-upload-label]')!;
 
     // Hide the Server section on platforms that have no dev-server-style
     // ROM loader (e.g. Electron). The platform passes `serverRoms: null`
@@ -92,7 +93,21 @@ export class RomsPanel implements Panel {
     void this.refreshServerList();
   }
 
-  setStatus(text: string): void { this.status.textContent = text; }
+  /**
+   * Update panel chrome that depends on the active console. Today: the
+   * upload button label widens to ".nes or .poncho" on Poncho-NES,
+   * which accepts both formats. Classic NES is `.nes` only.
+   */
+  setConsoleId(consoleId: string): void {
+    this.consoleId = consoleId;
+    this.uploadLabel.textContent = consoleId === 'poncho-nes'
+      ? 'Upload .nes or .poncho'
+      : 'Upload .nes';
+  }
+
+  private setStatus(text: string): void {
+    this.deps.onStatus?.(text);
+  }
 
   // ----- Browser-storage list ----------------------------------------------
 
@@ -215,10 +230,11 @@ export class RomsPanel implements Panel {
 
   private bindEvents(): void {
     this.btnUpload.addEventListener('click', async () => {
-      this.setStatus('Choose a .nes file…');
+      const accept = this.consoleId === 'poncho-nes' ? ['.nes', '.poncho'] : ['.nes'];
+      this.setStatus(`Choose a ${accept.join(' or ')} file…`);
       let rom: LoadedRom | null;
       try {
-        rom = await this.deps.filePicker.pick();
+        rom = await this.deps.filePicker.pick({ accept });
       } catch (err) {
         this.setStatus(`Failed: ${(err as Error).message}`);
         return;

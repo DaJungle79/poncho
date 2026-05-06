@@ -103,6 +103,33 @@ export class SettingsPanel implements Panel {
     this.volumeRange.value = String(Math.round(cfg.audio.volume * 100));
     this.muteCheckbox.checked = cfg.audio.muted;
     this.statusBarCheckbox.checked = cfg.general.showStatusBar;
+    this.applyScalerAvailability(cfg.general.selectedConsoleId);
+  }
+
+  /**
+   * Update which scaler options are available based on the active
+   * console. Poncho-NES already renders to a 1024×960 framebuffer —
+   * 2× and 4× would balloon to 2048×1920 / 4096×3840 with no benefit
+   * (CSS already scales the display for big monitors). Disabled here.
+   * If the current selection is no longer available, it falls back to 1×.
+   */
+  setConsoleId(consoleId: string): void {
+    this.applyScalerAvailability(consoleId);
+  }
+
+  private applyScalerAvailability(consoleId: string): void {
+    const restrictTo1x = consoleId === 'poncho-nes';
+    for (const option of this.scaleSelect.options) {
+      option.disabled = restrictTo1x && option.value !== 'nearest-1x';
+    }
+    if (restrictTo1x && this.scaleSelect.value !== 'nearest-1x') {
+      this.scaleSelect.value = 'nearest-1x';
+      const cfg = this.deps.config.update((c) => ({
+        ...c,
+        video: { ...c.video, scaler: 'nearest-1x' },
+      }));
+      this.deps.onConfigChanged(cfg);
+    }
   }
 
   private bindEvents(): void {
