@@ -26,6 +26,7 @@ export class SettingsPanel implements Panel {
   private readonly scaleSelect: HTMLSelectElement;
   private readonly volumeRange: HTMLInputElement;
   private readonly muteCheckbox: HTMLInputElement;
+  private readonly statusBarCheckbox: HTMLInputElement;
 
   constructor(private readonly deps: SettingsPanelDeps) {
     this.root = document.createElement('section');
@@ -44,6 +45,10 @@ export class SettingsPanel implements Panel {
               <option value="dark">Dark</option>
               <option value="light">Light</option>
             </select>
+          </label>
+          <label class="settings-row">
+            <span>Status bar</span>
+            <input type="checkbox" data-status-bar />
           </label>
         </section>
 
@@ -85,6 +90,7 @@ export class SettingsPanel implements Panel {
     this.scaleSelect = this.root.querySelector<HTMLSelectElement>('[data-scale]')!;
     this.volumeRange = this.root.querySelector<HTMLInputElement>('[data-volume]')!;
     this.muteCheckbox = this.root.querySelector<HTMLInputElement>('[data-mute]')!;
+    this.statusBarCheckbox = this.root.querySelector<HTMLInputElement>('[data-status-bar]')!;
 
     this.bindEvents();
   }
@@ -96,6 +102,7 @@ export class SettingsPanel implements Panel {
     this.scaleSelect.value = cfg.video.scaler;
     this.volumeRange.value = String(Math.round(cfg.audio.volume * 100));
     this.muteCheckbox.checked = cfg.audio.muted;
+    this.statusBarCheckbox.checked = cfg.general.showStatusBar;
   }
 
   private bindEvents(): void {
@@ -127,6 +134,14 @@ export class SettingsPanel implements Panel {
       const cfg = this.deps.config.update((c) => ({
         ...c,
         audio: { ...c.audio, muted: this.muteCheckbox.checked },
+      }));
+      this.deps.onConfigChanged(cfg);
+    });
+
+    this.statusBarCheckbox.addEventListener('change', () => {
+      const cfg = this.deps.config.update((c) => ({
+        ...c,
+        general: { ...c.general, showStatusBar: this.statusBarCheckbox.checked },
       }));
       this.deps.onConfigChanged(cfg);
     });

@@ -27,6 +27,7 @@ export type ThemeId = 'dark' | 'light';
 export interface GeneralConfig {
   lastRomUrl: string | null;
   theme: ThemeId;
+  showStatusBar: boolean;
 }
 
 export interface Config {

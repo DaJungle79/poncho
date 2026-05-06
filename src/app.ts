@@ -83,6 +83,7 @@ export class App {
     // ----- Config (with theme applied to <html>) -------------------------
     this.config = new ConfigStore(platform.configStorage);
     this.applyTheme(this.config.get().general.theme);
+    this.applyStatusBar(this.config.get().general.showStatusBar);
 
     // ----- Emulator + renderer ------------------------------------------
     this.nes = new Nes();
@@ -104,11 +105,6 @@ export class App {
       serverRoms: platform.serverRoms,
       filePicker: platform.filePicker,
       onLoaded: (rom) => this.loadRom(rom),
-      onPower: () => this.togglePower(),
-      onReset: () => this.resetEmu(),
-      onPause: () => this.togglePause(),
-      isPowered: () => this.powered,
-      isPaused: () => this.paused,
     });
     this.stack.registerL2(this.romsPanel);
 
@@ -120,6 +116,7 @@ export class App {
         this.platform.audio.setVolume(cfg.audio.volume);
         this.platform.audio.setMuted(cfg.audio.muted);
         this.applyTheme(cfg.general.theme);
+        this.applyStatusBar(cfg.general.showStatusBar);
       },
     });
     this.stack.registerL2(settingsPanel);
@@ -131,9 +128,11 @@ export class App {
     this.stack.registerL3(controlsPanel);
 
     this.sidebar.add({
+      id: 'roms',
       panelId: 'roms',
       label: 'ROMs',
       position: 'top',
+      hotkey: '1',
       icon: () => {
         const el = gameIcon('cassette');
         el.setAttribute('width', '22');
@@ -142,14 +141,36 @@ export class App {
       },
     });
     this.sidebar.add({
+      id: 'pause',
+      label: 'Pause',
+      position: 'top',
+      hotkey: '2',
+      icon: () => lucide('pause'),
+      onClick: () => this.togglePause(),
+    });
+    this.sidebar.add({
+      id: 'reset',
+      label: 'Reset',
+      position: 'top',
+      hotkey: '3',
+      icon: () => lucide('rotate-ccw'),
+      onClick: () => this.resetEmu(),
+    });
+    this.sidebar.add({
+      id: 'off',
+      label: 'Off / Eject',
+      position: 'top',
+      hotkey: '4',
+      icon: () => lucide('power'),
+      onClick: () => this.togglePower(),
+    });
+    this.sidebar.add({
+      id: 'settings',
       panelId: 'settings',
       label: 'Settings',
       position: 'bottom',
-      icon: () => {
-        const i = document.createElement('i');
-        i.dataset.lucide = 'settings';
-        return i;
-      },
+      hotkey: '5',
+      icon: () => lucide('settings'),
     });
 
     mountLucideIcons();
@@ -297,4 +318,14 @@ export class App {
   private applyTheme(theme: 'dark' | 'light'): void {
     document.documentElement.dataset.theme = theme;
   }
+
+  private applyStatusBar(visible: boolean): void {
+    document.documentElement.dataset.statusBar = visible ? 'visible' : 'hidden';
+  }
+}
+
+function lucide(name: string): HTMLElement {
+  const i = document.createElement('i');
+  i.dataset.lucide = name;
+  return i;
 }

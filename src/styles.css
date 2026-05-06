@@ -120,7 +120,16 @@ select:focus-visible {
   overflow: hidden;
 }
 
-.layout-sidebar { grid-area: sidebar; overflow: hidden; position: relative; z-index: 6; }
+.layout-sidebar {
+  grid-area: sidebar;
+  /* overflow:visible so the right-edge drop-shadow can fall onto the
+     main area. The shadow rule lives here (not on .sidebar) because
+     `box-shadow` is clipped by the immediate parent's overflow. */
+  overflow: visible;
+  position: relative;
+  z-index: 6;
+  box-shadow: var(--panel-shadow);
+}
 .layout-main    { grid-area: main;    overflow: auto;   position: relative; z-index: 1; }
 
 .layout-l2,
@@ -157,12 +166,10 @@ select:focus-visible {
   height: 100%;
   background: var(--bg-raised);
   border-right: 1px solid var(--line);
-  /* Subtle right-edge shadow so the sidebar reads as a raised surface
-     above the panel below it. The negative spread keeps the shadow
-     on the right edge only, not bleeding upward/downward. */
-  box-shadow:
-    inset -1px 0 0 var(--panel-edge-glow),
-    var(--panel-shadow);
+  /* Inset highlight on the right edge for the 3D feel. The drop-shadow
+     itself lives on .layout-sidebar above so it isn't clipped by an
+     overflow:hidden ancestor. */
+  box-shadow: inset -1px 0 0 var(--panel-edge-glow);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -202,6 +209,28 @@ select:focus-visible {
   background: rgba(248, 120, 88, 0.08);
 }
 .sidebar-btn svg { width: 22px; height: 22px; }
+
+/* Instant retro tooltip popping out to the right of the sidebar.
+   Native `title` has a ~1.5s delay we don't want here. The element is
+   appended to <body> by sidebar.ts so it escapes layout overflow:hidden. */
+.sidebar-tooltip {
+  position: fixed;
+  background: var(--bg-deep);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 80ms steps(3, end);
+  z-index: 1000;
+  box-shadow: var(--panel-shadow);
+  transform: translateY(-50%);
+}
+.sidebar-tooltip.visible { opacity: 1; }
 
 /* ----- Panels ----------------------------------------------------------- */
 
@@ -253,14 +282,6 @@ select:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 18px;
-}
-
-.panel-footer {
-  border-top: 1px solid var(--line);
-  padding: 10px 12px;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
 }
 
 /* ----- ROMs panel -------------------------------------------------------- */
@@ -438,23 +459,6 @@ select:focus-visible {
   word-break: break-word;
 }
 
-.rom-action {
-  background: var(--bg-deep);
-  border: 1px solid var(--line);
-  color: var(--fg);
-  padding: 8px 4px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.rom-action svg { width: 18px; height: 18px; }
-.rom-action:hover { border-color: var(--accent); color: var(--accent); }
-
 /* ----- Settings panel ---------------------------------------------------- */
 
 .settings-group h3 {
@@ -607,9 +611,11 @@ select:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20px;
+  /* Bottom padding leaves room for the fixed-position status bar. */
+  padding: 20px 20px 32px;
   gap: 12px;
 }
+html[data-status-bar='hidden'] .layout-main { padding-bottom: 20px; }
 
 /*
  * Title bar above the canvas. Vertical stack: the Poncho brand on top
@@ -708,17 +714,28 @@ select:focus-visible {
   background: black;
 }
 
+/* Sticky status bar pinned to the viewport bottom. Sits on top of the
+   main area, not inside it, so scrolling the main area doesn't move it. */
 .status-bar {
-  align-self: stretch;
+  position: fixed;
+  left: var(--sidebar-w);
+  right: 0;
+  bottom: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
+  padding: 3px 10px;
   background: var(--bg-raised);
-  border: 1px solid var(--line);
+  border-top: 1px solid var(--line);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10px;
+  letter-spacing: 0.3px;
   color: var(--fg-soft);
+  z-index: 7;
 }
 .fps { color: var(--accent-soft); font-variant-numeric: tabular-nums; }
 .status-text { word-break: break-word; }
+
+/* Toggled via Settings → Appearance. Driven by the data attribute on
+   <html>; applying to .status-bar (not html) keeps it animatable later. */
+html[data-status-bar='hidden'] .status-bar { display: none; }

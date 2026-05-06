@@ -12,19 +12,13 @@ export interface RomsPanelDeps {
   filePicker: FilePicker;
   /** Called when a ROM has been loaded successfully. */
   onLoaded: (rom: LoadedRom) => void | Promise<void>;
-  /** Power / Reset / Pause callbacks. Pause toggles. */
-  onPower: () => void;
-  onReset: () => void;
-  onPause: () => void;
-  /** Whether the emulator is currently powered. Used for button labels. */
-  isPowered: () => boolean;
-  /** Whether playback is currently paused. */
-  isPaused: () => boolean;
 }
 
 /**
- * ROMs panel — two distinct sources, plus the always-visible playback
- * footer (Power / Reset / Pause).
+ * ROMs panel — two ROM sources stacked vertically.
+ *
+ * Playback controls (Power / Reset / Pause) live in the sidebar instead
+ * of inside this panel, so they're reachable without opening it.
  *
  *   Browser storage  — ROMs the user has uploaded. Persisted via IndexedDB
  *                      so they survive page reloads. The Upload button
@@ -45,9 +39,6 @@ export class RomsPanel implements Panel {
   private readonly serverSection: HTMLElement;
   private readonly btnUpload: HTMLButtonElement;
   private readonly status: HTMLDivElement;
-  private readonly btnPower: HTMLButtonElement;
-  private readonly btnReset: HTMLButtonElement;
-  private readonly btnPause: HTMLButtonElement;
 
   constructor(private readonly deps: RomsPanelDeps) {
     this.root = document.createElement('section');
@@ -73,18 +64,6 @@ export class RomsPanel implements Panel {
 
         <div class="rom-status" data-status></div>
       </div>
-
-      <footer class="panel-footer">
-        <button data-power class="rom-action">
-          <i data-lucide="power"></i><span>Power</span>
-        </button>
-        <button data-reset class="rom-action">
-          <i data-lucide="rotate-ccw"></i><span>Reset</span>
-        </button>
-        <button data-pause class="rom-action">
-          <i data-lucide="pause"></i><span>Pause</span>
-        </button>
-      </footer>
     `;
 
     // Match the Settings header pattern: icon as a sibling of h2.
@@ -98,9 +77,6 @@ export class RomsPanel implements Panel {
     this.serverSection = this.root.querySelector<HTMLElement>('[data-server-section]')!;
     this.btnUpload = this.root.querySelector<HTMLButtonElement>('[data-upload]')!;
     this.status = this.root.querySelector<HTMLDivElement>('[data-status]')!;
-    this.btnPower = this.root.querySelector<HTMLButtonElement>('[data-power]')!;
-    this.btnReset = this.root.querySelector<HTMLButtonElement>('[data-reset]')!;
-    this.btnPause = this.root.querySelector<HTMLButtonElement>('[data-pause]')!;
 
     // Hide the Server section on platforms that have no dev-server-style
     // ROM loader (e.g. Electron). The platform passes `serverRoms: null`
@@ -114,13 +90,6 @@ export class RomsPanel implements Panel {
     mountLucideIcons();
     void this.refreshBrowserList();
     void this.refreshServerList();
-    this.refreshButtonStates();
-  }
-
-  /** Update Power / Pause button labels to match the current state. */
-  refreshButtonStates(): void {
-    this.btnPower.querySelector('span')!.textContent = this.deps.isPowered() ? 'Off' : 'Power';
-    this.btnPause.querySelector('span')!.textContent = this.deps.isPaused() ? 'Resume' : 'Pause';
   }
 
   setStatus(text: string): void { this.status.textContent = text; }
@@ -181,7 +150,6 @@ export class RomsPanel implements Panel {
       const rom: LoadedRom = { name, source: `browser:${name}`, data };
       await this.deps.onLoaded(rom);
       this.setStatus(`Loaded ${name}`);
-      this.refreshButtonStates();
     } catch (err) {
       this.setStatus(`Failed: ${(err as Error).message}`);
     }
@@ -238,7 +206,6 @@ export class RomsPanel implements Panel {
       const rom = await this.deps.serverRoms.load(filename);
       await this.deps.onLoaded(rom);
       this.setStatus(`Loaded ${rom.name}`);
-      this.refreshButtonStates();
     } catch (err) {
       this.setStatus(`Failed: ${(err as Error).message}`);
     }
@@ -267,20 +234,9 @@ export class RomsPanel implements Panel {
         await this.refreshBrowserList();
         await this.deps.onLoaded(rom);
         this.setStatus(`Loaded ${rom.name} (saved to browser storage)`);
-        this.refreshButtonStates();
       } catch (err) {
         this.setStatus(`Failed: ${(err as Error).message}`);
       }
-    });
-
-    this.btnPower.addEventListener('click', () => {
-      this.deps.onPower();
-      this.refreshButtonStates();
-    });
-    this.btnReset.addEventListener('click', () => this.deps.onReset());
-    this.btnPause.addEventListener('click', () => {
-      this.deps.onPause();
-      this.refreshButtonStates();
     });
   }
 }
