@@ -208,6 +208,79 @@ describe('synthetic PonchoROM: single-sprite', () => {
   );
 });
 
+describe('synthetic PonchoROM: upscaled-chr', () => {
+  const path = testRomPath('poncho/upscaled-chr.poncho');
+
+  it.skipIf(!existsSync(path))(
+    'declares upscaled mode + 8 KB CHR-RAM',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const { header } = parsePonchoRom(data);
+      expect(header.flags.upscaledMode).toBe(true);
+      expect(header.chrRamKb).toBe(8);
+      expect(header.chrSizeKb).toBe(0);
+    },
+  );
+
+  it.skipIf(!existsSync(path))(
+    'PRG uploads a column-stripe NES tile via $2007; render shows 4-px red stripes every 32 px',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const factory = detectConsole(data);
+      const console = factory!.create() as PonchoNes;
+      console.loadRom(data);
+
+      // Two frames: PRG runs in the first; second frame renders the
+      // populated CHR-RAM + palette.
+      console.runFrame();
+      const fb = console.runFrame();
+
+      // ABGR pack — (R=255, G=0, B=0, A=255) = 0xFF0000FF.
+      const red = 0xff0000ff;
+      const black = 0xff000000;
+
+      // Top scan-line — repeating 4-px red stripes every 32 px.
+      expect(fb.data[0]).toBe(red);
+      expect(fb.data[1]).toBe(red);
+      expect(fb.data[2]).toBe(red);
+      expect(fb.data[3]).toBe(red);
+      expect(fb.data[4]).toBe(black);
+      expect(fb.data[31]).toBe(black);
+      expect(fb.data[32]).toBe(red);
+      expect(fb.data[35]).toBe(red);
+      expect(fb.data[36]).toBe(black);
+
+      // Same pattern holds at row 100 and row 800.
+      const row = (y: number, x: number) => fb.data[y * 1024 + x];
+      expect(row(100, 0)).toBe(red);
+      expect(row(100, 5)).toBe(black);
+      expect(row(800, 32)).toBe(red);
+    },
+  );
+
+  it.skipIf(!existsSync(path))(
+    'CHR-RAM ppuWrite via the mapper persists; ppuRead returns the same byte',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const factory = detectConsole(data);
+      const console = factory!.create() as PonchoNes;
+      console.loadRom(data);
+      console.runFrame();
+
+      // After PRG runs, mapper.ppuRead($0000..$0007) should return 0x80
+      // (the plane-0 bytes the loop wrote).
+      const mapper = console.cartridge!.mapper;
+      for (let i = 0; i < 8; i++) {
+        expect(mapper.ppuRead(i)).toBe(0x80);
+      }
+      // Plane 1 (offsets $0008..$000F) is zero.
+      for (let i = 8; i < 16; i++) {
+        expect(mapper.ppuRead(i)).toBe(0x00);
+      }
+    },
+  );
+});
+
 describe('synthetic PonchoROM: multi-nametable', () => {
   const path = testRomPath('poncho/multi-nametable.poncho');
 

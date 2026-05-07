@@ -41,7 +41,8 @@
     "gen:poncho:nmi-scroll": "tsx scripts/gen-poncho-rom/nmi-scroll.ts",
     "gen:poncho:compat-bg": "tsx scripts/gen-poncho-rom/compat-bg.ts",
     "gen:poncho:uxrom-bankswitch": "tsx scripts/gen-poncho-rom/uxrom-bankswitch.ts",
-    "gen:poncho:multi-nametable": "tsx scripts/gen-poncho-rom/multi-nametable.ts"
+    "gen:poncho:multi-nametable": "tsx scripts/gen-poncho-rom/multi-nametable.ts",
+    "gen:poncho:upscaled-chr": "tsx scripts/gen-poncho-rom/upscaled-chr.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

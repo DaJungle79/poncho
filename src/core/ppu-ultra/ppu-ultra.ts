@@ -138,8 +138,22 @@ export class PpuUltra {
   /** NMI delivery callback. Wired by the composition to cpu.triggerNmi(). */
   private nmiCallback: (() => void) | null = null;
 
-  /** CHR-ROM bytes. The mapper hands them in directly; banking lands when a test ROM needs more. */
+  /** CHR-ROM bytes (native mode). The mapper hands them in directly; banking lands when a test ROM needs more. */
   private chr: Uint8Array | null = null;
+
+  /**
+   * Upscaled-mode CHR access. When set, the chip walks 8×8 2 bpp NES tiles
+   * via this callback and paints each NES pixel as a 4×4 block in the
+   * 1024×960 framebuffer. Wired by `PonchoNes.loadRom` to `mapper.ppuRead`
+   * so CHR-RAM and CHR-banking variants both work transparently.
+   */
+  private chrReader: ((addr: number) => number) | null = null;
+
+  /** Routes `$2007` writes in the $0000-$1FFF range to the cartridge mapper. */
+  private chrWriter: ((addr: number, value: number) => void) | null = null;
+
+  /** Selects the upscaled (NES-format) render path; cleared = native 32×32 8bpp. */
+  private upscaledMode = false;
 
   /** Universal-BG colour, cached so empty/no-CHR frames stay cheap. */
   private bgColor = 0xff000000;
@@ -178,6 +192,23 @@ export class PpuUltra {
    */
   setMirroring(m: Mirroring): void {
     this.nametableMirroring = m;
+  }
+
+  /**
+   * Select the upscaled (NES-format) BG render path. The companion
+   * `setChrReader` provides the CHR fetch source; `setChrWriter` lets PRG
+   * upload tiles to CHR-RAM via $2007.
+   */
+  setUpscaledMode(enabled: boolean): void {
+    this.upscaledMode = enabled;
+  }
+
+  setChrReader(reader: ((addr: number) => number) | null): void {
+    this.chrReader = reader;
+  }
+
+  setChrWriter(writer: ((addr: number, value: number) => void) | null): void {
+    this.chrWriter = writer;
   }
 
   setNmiCallback(cb: (() => void) | null): void {
@@ -342,6 +373,10 @@ export class PpuUltra {
       this.framebuffer.data.fill(this.bgColor);
       return;
     }
+    if (this.upscaledMode) {
+      this.renderFrameUpscaled();
+      return;
+    }
     if (this.chr === null || this.chr.length === 0) {
       // No CHR wired — every tile fetches as 0, so the entire screen
       // resolves to the universal BG colour.
@@ -471,6 +506,103 @@ export class PpuUltra {
     }
   }
 
+  /**
+   * Upscaled-mode BG render. Walks the NES BG layer in 256×240 NES-px
+   * coordinate space (one nametable's worth of source content), painting
+   * each NES pixel as a 4×4 block in the 1024×960 framebuffer.
+   *
+   * Per-pixel walk so non-tile-aligned scroll values still hit the right
+   * source position; the inner loop caches the last tile-column lookup so
+   * the cost is amortised to one CHR fetch (8-byte plane pair) per tile
+   * column per scanline.
+   *
+   * Sprites are not yet rendered in upscaled mode — they land in Phase 5
+   * along with NES-shape OAM translation.
+   */
+  private renderFrameUpscaled(): void {
+    const reader = this.chrReader;
+    const fb = this.framebuffer.data;
+    const universalBg = this.bgColor;
+    if (reader === null || !this.showBackground) {
+      fb.fill(universalBg);
+      return;
+    }
+
+    const width = ULTRA_WIDTH;
+    const pal = this.paletteRam;
+    const master = this.masterPalette;
+    const masterLen = master.length;
+    const ntRam = this.nametableRam;
+    const bgPatternBase = this.bgPatternBase;
+    const mirroring = this.nametableMirroring;
+
+    // PPUCTRL base-NT + $2005 scroll combine in NES-pixel coordinates.
+    // Effective scroll wraps at the 2-NT virtual plane (512 × 480 NES px).
+    const NES_W = 256;
+    const NES_H = 240;
+    const VW = NES_W * 2;
+    const VH = NES_H * 2;
+    const baseNTH = this.baseNametable & 1;
+    const baseNTV = (this.baseNametable >> 1) & 1;
+    const effSx = (this.scrollX + baseNTH * NES_W) % VW;
+    const effSy = (this.scrollY + baseNTV * NES_H) % VH;
+
+    for (let py = 0; py < ULTRA_HEIGHT; py++) {
+      const nesScreenY = py >> 2; // 4 Poncho rows per NES row
+      const virtualNesY = (nesScreenY + effSy) % VH;
+      const ntV = (virtualNesY / NES_H) | 0;
+      const localNesY = virtualNesY - ntV * NES_H;
+      const tileRow = (localNesY / 8) | 0;
+      const tileLocalY = localNesY & 7;
+
+      let dst = py * width;
+      let lastNtH = -1;
+      let lastTileCol = -1;
+      let physBase = 0;
+      let plane0 = 0;
+      let plane1 = 0;
+      let subPalette = 0;
+
+      for (let px = 0; px < ULTRA_WIDTH; px++) {
+        const nesScreenX = px >> 2;
+        const virtualNesX = (nesScreenX + effSx) % VW;
+        const ntH = (virtualNesX / NES_W) | 0;
+        const localNesX = virtualNesX - ntH * NES_W;
+        const tileCol = (localNesX / 8) | 0;
+        const tileLocalX = localNesX & 7;
+
+        if (ntH !== lastNtH) {
+          lastNtH = ntH;
+          lastTileCol = -1;
+          const logicalNT = ntV * 2 + ntH;
+          const physicalNT = resolvePhysicalNT(logicalNT, mirroring);
+          physBase = physicalNT * NAMETABLE_SIZE;
+        }
+        if (tileCol !== lastTileCol) {
+          lastTileCol = tileCol;
+          const tileIdx = ntRam[physBase + tileRow * TILE_COLS + tileCol]!;
+          const baseAddr = bgPatternBase + tileIdx * 16;
+          plane0 = reader(baseAddr + tileLocalY) & 0xff;
+          plane1 = reader(baseAddr + 8 + tileLocalY) & 0xff;
+          const attrByte = ntRam[physBase + 960 + (tileRow >> 2) * 8 + (tileCol >> 2)]!;
+          const attrShift = ((tileRow & 2) << 1) | (tileCol & 2);
+          subPalette = (attrByte >> attrShift) & 0x3;
+        }
+
+        const bit = 7 - tileLocalX;
+        const pv = ((plane0 >> bit) & 1) | (((plane1 >> bit) & 1) << 1);
+        let color: number;
+        if (pv === 0) {
+          color = universalBg;
+        } else {
+          const idx = pal[subPalette * 4 + pv]! % masterLen;
+          color = master[idx]!;
+        }
+        fb[dst++] = color;
+      }
+    }
+  }
+
   private vramWrite(addr: number, value: number): void {
     if (addr >= PALETTE_RAM_BASE) {
       this.paletteRam[addr & 0x1f] = value;
@@ -486,8 +618,12 @@ export class PpuUltra {
       this.nametableRam[offset] = value;
       return;
     }
-    // CHR-RAM (writes below $2000) is routed through the cartridge
-    // mapper in Phase 4 of the v0.3.0 plan; for now stays a no-op.
+    if (addr < 0x2000) {
+      // CHR space — routed to the cartridge mapper. The mapper drops
+      // the write for CHR-ROM cartridges and stores it for CHR-RAM.
+      this.chrWriter?.(addr, value);
+      return;
+    }
   }
 
   /**

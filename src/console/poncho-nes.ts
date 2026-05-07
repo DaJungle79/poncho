@@ -76,8 +76,24 @@ export class PonchoNes implements Console {
     this.cartridge = cart;
     this.cpuBus.setCartridge(cart);
     this.ppu.setMasterPalette(cart.palette);
-    this.ppu.setChr(cart.chr);
     this.ppu.setMirroring(cart.mapper.mirroring());
+
+    // Upscaled-mode cartridges (converted iNES games) speak NES-shape CHR:
+    // the PpuUltra walks 8×8 2 bpp tiles via mapper.ppuRead and paints each
+    // NES pixel as a 4×4 block. Native-mode cartridges (hand-crafted) hand
+    // 32×32 8 bpp tile bytes in directly.
+    const upscaled = cart.layout.header.flags.upscaledMode;
+    this.ppu.setUpscaledMode(upscaled);
+    if (upscaled) {
+      this.ppu.setChr(null);
+      this.ppu.setChrReader((addr) => cart.mapper.ppuRead(addr));
+      this.ppu.setChrWriter((addr, v) => cart.mapper.ppuWrite(addr, v));
+    } else {
+      this.ppu.setChr(cart.chr);
+      this.ppu.setChrReader(null);
+      this.ppu.setChrWriter(null);
+    }
+
     this.reset();
   }
 
@@ -85,6 +101,9 @@ export class PonchoNes implements Console {
     this.cartridge = null;
     this.cpuBus.setCartridge(null);
     this.ppu.setChr(null);
+    this.ppu.setChrReader(null);
+    this.ppu.setChrWriter(null);
+    this.ppu.setUpscaledMode(false);
   }
 
   reset(): void {
