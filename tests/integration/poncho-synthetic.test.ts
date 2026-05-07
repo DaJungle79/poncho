@@ -208,6 +208,43 @@ describe('synthetic PonchoROM: single-sprite', () => {
   );
 });
 
+describe('synthetic PonchoROM: mmc1-bankswitch', () => {
+  const path = testRomPath('poncho/mmc1-bankswitch.poncho');
+
+  it.skipIf(!existsSync(path))(
+    'declares MMC1-style banking variant',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const { header } = parsePonchoRom(data);
+      expect(decodeMapperSubmode(header.mapperSubmode)).toEqual({
+        bankingVariant: 1,
+        bootMirroring: 0,
+      });
+      expect(header.prgSizeKb).toBe(64);
+    },
+  );
+
+  it.skipIf(!existsSync(path))(
+    'PRG drives MMC1 serial protocol; bank-selects 0/1/2 in turn yield distinct sentinel bytes',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const factory = detectConsole(data);
+      const console = factory!.create() as PonchoNes;
+      console.loadRom(data);
+
+      // PRG runs in bank 3 (the fixed bank at $C000), serial-writes 5 bits
+      // to $E000 to select each of banks 0/1/2 in turn, reads $8000, and
+      // stores the sentinel to zero-page. One frame is more than enough.
+      console.runFrame();
+
+      const ram = console.cpuBus.ram;
+      expect(ram[0x00]).toBe(0xb0);
+      expect(ram[0x01]).toBe(0xb1);
+      expect(ram[0x02]).toBe(0xb2);
+    },
+  );
+});
+
 describe('synthetic PonchoROM: scanline-split', () => {
   const path = testRomPath('poncho/scanline-split.poncho');
 

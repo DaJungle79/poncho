@@ -122,12 +122,21 @@ describe('PonchoMapper — boot mirroring delivery', () => {
   });
 });
 
-describe('PonchoMapper — variant gating', () => {
-  it('throws on banking variants not yet implemented', () => {
-    for (const variant of [1, 3, 4, 7] as const) {
-      expect(
-        () => new PonchoMapper(new Uint8Array(1024), new Uint8Array(0), { bankingVariant: variant }),
-      ).toThrow(/not yet implemented/);
+describe('PonchoMapper — variant dispatch', () => {
+  it('exposes the friendly variant name for each supported banking variant', () => {
+    const expectations: Array<[0 | 1 | 2 | 3 | 4 | 7, string]> = [
+      [0, 'PonchoMapper/NROM-style'],
+      [1, 'PonchoMapper/MMC1-style'],
+      [2, 'PonchoMapper/UxROM-style'],
+      [3, 'PonchoMapper/CNROM-style'],
+      [4, 'PonchoMapper/MMC3-style'],
+      [7, 'PonchoMapper/AxROM-style'],
+    ];
+    for (const [variant, expected] of expectations) {
+      const m = new PonchoMapper(new Uint8Array(16 * 1024), new Uint8Array(8192), {
+        bankingVariant: variant,
+      });
+      expect(m.name).toBe(expected);
     }
   });
 });

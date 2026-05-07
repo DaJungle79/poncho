@@ -46,7 +46,8 @@
     "gen:poncho:upscaled-sprite": "tsx scripts/gen-poncho-rom/upscaled-sprite.ts",
     "gen:poncho:sprite0-hit": "tsx scripts/gen-poncho-rom/sprite0-hit.ts",
     "gen:poncho:sprite-8x16": "tsx scripts/gen-poncho-rom/sprite-8x16.ts",
-    "gen:poncho:scanline-split": "tsx scripts/gen-poncho-rom/scanline-split.ts"
+    "gen:poncho:scanline-split": "tsx scripts/gen-poncho-rom/scanline-split.ts",
+    "gen:poncho:mmc1-bankswitch": "tsx scripts/gen-poncho-rom/mmc1-bankswitch.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
