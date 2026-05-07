@@ -2,6 +2,7 @@ import { gameIcon, mountLucideIcons } from '../icons';
 import type { Panel } from '../panel-stack';
 import type { FilePicker, RomLibrary, ServerRomLoader } from '../../../../platform/types';
 import type { LoadedRom, StoredRomEntry } from '../../../../domain/rom';
+import { ConvertError, convertInesToPoncho } from '../../../../convert/ines-to-poncho';
 
 export interface RomsPanelDeps {
   /** Persistent local library — uploaded ROMs (web: IndexedDB). */
@@ -42,6 +43,7 @@ export class RomsPanel implements Panel {
   private readonly serverSection: HTMLElement;
   private readonly btnUpload: HTMLButtonElement;
   private readonly uploadLabel: HTMLSpanElement;
+  private readonly btnConvert: HTMLButtonElement;
   private consoleId = 'nes';
 
   constructor(private readonly deps: RomsPanelDeps) {
@@ -55,10 +57,16 @@ export class RomsPanel implements Panel {
         <section class="rom-section">
           <h3><i data-lucide="hard-drive"></i><span>Browser storage</span></h3>
           <ul class="rom-list" data-browser-list></ul>
-          <button type="button" class="file-button file-button-compact" data-upload>
-            <i data-lucide="upload"></i>
-            <span data-upload-label>Upload .nes</span>
-          </button>
+          <div class="rom-actions">
+            <button type="button" class="file-button file-button-compact" data-upload>
+              <i data-lucide="upload"></i>
+              <span data-upload-label>Upload .nes</span>
+            </button>
+            <button type="button" class="file-button file-button-compact" data-convert hidden>
+              <i data-lucide="file-input"></i>
+              <span>Convert .nes</span>
+            </button>
+          </div>
         </section>
 
         <section class="rom-section" data-server-section>
@@ -80,6 +88,7 @@ export class RomsPanel implements Panel {
     this.serverSection = this.root.querySelector<HTMLElement>('[data-server-section]')!;
     this.btnUpload = this.root.querySelector<HTMLButtonElement>('[data-upload]')!;
     this.uploadLabel = this.root.querySelector<HTMLSpanElement>('[data-upload-label]')!;
+    this.btnConvert = this.root.querySelector<HTMLButtonElement>('[data-convert]')!;
 
     // Hide the Server section on platforms that have no dev-server-style
     // ROM loader (e.g. Electron). The platform passes `serverRoms: null`
@@ -102,6 +111,10 @@ export class RomsPanel implements Panel {
     this.uploadLabel.textContent = consoleId === 'poncho-nes'
       ? 'Upload .poncho'
       : 'Upload .nes';
+    // The "Convert .nes" button is Poncho-NES-only — its job is to
+    // bridge an iNES file into the Poncho-NES library by wrapping it
+    // as an upscaled-mode `.poncho` cartridge.
+    this.btnConvert.hidden = consoleId !== 'poncho-nes';
   }
 
   private setStatus(text: string): void {
@@ -257,6 +270,62 @@ export class RomsPanel implements Panel {
         this.setStatus(`Failed: ${(err as Error).message}`);
       }
     });
+
+    this.btnConvert.addEventListener('click', () => void this.handleConvert());
+  }
+
+  /**
+   * "Convert .nes" — picks an iNES file, wraps it as an upscaled-mode
+   * PonchoROM via `convertInesToPoncho`, stores the result in the
+   * browser library, and refreshes the listing. The original .nes file
+   * is *not* stored — only the converted .poncho.
+   *
+   * Convert is offered exclusively in Poncho-NES mode: the converted
+   * cartridge runs natively on PpuUltra + PonchoMapper and shows up
+   * alongside hand-authored Poncho games in the library.
+   */
+  private async handleConvert(): Promise<void> {
+    this.setStatus('Choose an .nes file to convert…');
+    let picked: LoadedRom | null;
+    try {
+      picked = await this.deps.filePicker.pick({ accept: ['.nes'] });
+    } catch (err) {
+      this.setStatus(`Failed: ${(err as Error).message}`);
+      return;
+    }
+    if (!picked) {
+      this.setStatus('Conversion cancelled.');
+      return;
+    }
+
+    const baseTitle = picked.name.replace(/\.nes$/i, '').replace(/\s*\([^)]*\)/g, '').trim();
+    let result;
+    try {
+      result = convertInesToPoncho(picked.data, { title: baseTitle });
+    } catch (err) {
+      if (err instanceof ConvertError) {
+        this.setStatus(`Conversion failed: ${err.message}`);
+      } else {
+        this.setStatus(`Conversion failed: ${(err as Error).message}`);
+      }
+      return;
+    }
+
+    const ponchoName = picked.name.replace(/\.nes$/i, '') + '.poncho';
+    try {
+      await this.deps.romLibrary.add(ponchoName, result.poncho);
+      await this.refreshBrowserList();
+    } catch (err) {
+      this.setStatus(`Saved-to-library failed: ${(err as Error).message}`);
+      return;
+    }
+
+    const { notes } = result;
+    const chrLabel = notes.chrRamKb > 0 ? `CHR-RAM ${notes.chrRamKb} KB` : `CHR ${notes.chrKb} KB`;
+    this.setStatus(
+      `Converted ${picked.name} → ${ponchoName} ` +
+      `(mapper ${notes.sourceMapper}, ${chrLabel}, PRG ${notes.prgKb} KB)`,
+    );
   }
 }
 

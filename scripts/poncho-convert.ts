@@ -14,7 +14,11 @@
 import { readFileSync, writeFileSync, statSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
 
-import { ConvertError, convertInesToPoncho } from './lib/ines-to-poncho';
+import {
+  ConvertError,
+  bankingVariantName,
+  convertInesToPoncho,
+} from './lib/ines-to-poncho';
 
 interface CliArgs {
   input: string;
@@ -100,17 +104,19 @@ function main(): void {
   const outSize = statSync(output).size;
 
   const { notes } = result;
+  const variantLabel = bankingVariantName(notes.bankingVariant);
   console.log(`✓ ${input}`);
   console.log(`  → ${output}  (${formatBytes(outSize)})`);
   console.log(`  title:           ${finalTitle || '(empty)'}`);
-  console.log(`  source mapper:   ${notes.sourceMapper} (NROM)`);
+  console.log(`  source mapper:   ${notes.sourceMapper} (${variantLabel})`);
   console.log(`  source mirror:   ${notes.sourceMirroring}`);
   console.log(`  battery save:    ${notes.hasBattery ? 'yes (not preserved)' : 'no'}`);
   console.log(`  PRG:             ${notes.prgKb} KB (verbatim)`);
-  console.log(
-    `  CHR:             ${notes.chrKbSource} KB → ${notes.chrKbExpanded} KB ` +
-    `(${(notes.chrKbExpanded / notes.chrKbSource).toFixed(0)}× expansion)`,
-  );
+  if (notes.chrRamKb > 0) {
+    console.log(`  CHR:             RAM (${notes.chrRamKb} KB allocated; PRG uploads at runtime)`);
+  } else {
+    console.log(`  CHR:             ${notes.chrKb} KB (verbatim)`);
+  }
   console.log(`  master palette:  ${notes.paletteEntries} entries (NES canonical)`);
   for (const w of notes.warnings) console.log(`  ! ${w}`);
 }

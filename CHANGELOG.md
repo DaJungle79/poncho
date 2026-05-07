@@ -8,6 +8,17 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **iNES → upscaled-mode PonchoROM converter v2 (Phase 9 of v0.3.0)** — first deliverable on Track B (the converter).
+  - New module [`src/convert/ines-to-poncho.ts`](src/convert/ines-to-poncho.ts) replaces the v0.2 NROM-only converter. Now supports all 6 PonchoMapper banking variants (NROM, MMC1, UxROM, CNROM, MMC3, AxROM). PRG copied verbatim. CHR-ROM embedded verbatim; CHR-RAM games get `chrRamKb=8` and the runtime allocates the buffer. iNES mirroring (horizontal / vertical / four-screen) maps into the boot-mirroring sub-field of `mapper_submode`. `flags.upscaledMode = 1` so PpuUltra renders 8×8 2 bpp tiles as 4×4 blocks and walks NES OAM. Source iNES CRC32 recorded in the header for traceability.
+  - Lives under `src/` (not `scripts/lib/`) so the web shell can import it client-side. `scripts/lib/ines-to-poncho.ts` is now a thin re-export so the CLI shares one source of truth.
+  - `bankingVariantName(variant)` exported for the CLI + UI.
+  - 18 new tests (round-trip, mapper-id mapping for all 6 variants, mirroring mapping, CHR-ROM vs CHR-RAM, error paths for unsupported mappers / trainers, end-to-end load+runFrame for NROM and CHR-RAM-UxROM).
+  - **Validated against three real games**: `Contra (USA).nes` → UxROM + CHR-RAM (128 KB PRG); `Double Dragon II.nes` → MMC3 + CHR-ROM (128 KB PRG + 128 KB CHR); `Mighty Bomb Jack.nes` → CNROM + CHR-ROM (32 KB PRG + 32 KB CHR). All produce well-formed `.poncho` files that load through `detectConsole` + `PonchoNes.loadRom`.
+- **"Convert .nes" button in the ROMs panel** (web shell) — second deliverable for Phase 9.
+  - Visible only when Poncho-NES is the active console (sits next to "Upload .poncho").
+  - Opens a file picker accepting `.nes`. On selection: client-side conversion via `convertInesToPoncho`, the resulting `.poncho` is added to the IndexedDB-backed library under the original basename + `.poncho`, the browser-storage list refreshes. Conversion errors (unsupported mapper, trainer, etc.) surface in the status bar; the cancellation path doesn't error.
+  - The new `<div class="rom-actions">` row in [`src/shells/web/ui/panels/roms-panel.ts`](src/shells/web/ui/panels/roms-panel.ts) lays Upload + Convert side-by-side; the Convert button is hidden via the `hidden` attribute when the active console isn't Poncho-NES (CSS leaves Upload occupying the row alone).
+  - Total: 366 passed, 1 skipped (+5 new converter tests; UI is verified manually).
 - **Additional PonchoMapper banking variants (Phase 8 of v0.3.0)** — closes out the runtime track of v0.3.0.
   - **MMC1-style** (variant 1): 5-bit serial register protocol via shift register fed from any `$8000-$FFFF` write. Five-write commit to control / CHR0 / CHR1 / PRG-bank registers selected by address bits 13–14. PRG modes 0/1 (32 KB), 2 (fixed first / switch second), 3 (switch first / fixed last). CHR mode 0 (single 8 KB) / 1 (two 4 KB). Runtime mirroring control (single-low / single-high / vertical / horizontal). Bit-7 reset path forces PRG mode 3.
   - **CNROM-style** (variant 3): PRG fixed (16 KB mirrored or 32 KB straight); any write to `$8000-$FFFF` selects an 8 KB CHR bank. Modulo-by-bank-count so non-power-of-two CHR sizes work.

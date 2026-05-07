@@ -447,6 +447,18 @@ select:focus-visible {
 }
 .file-button-compact svg { width: 13px; height: 13px; }
 
+/*
+ * Action row beneath the browser-storage list. Stacks Upload + Convert
+ * side-by-side on Poncho-NES (the convert button is hidden in NES mode
+ * via the `[hidden]` attribute, so Upload occupies the row alone).
+ */
+.rom-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.rom-actions .file-button-compact { margin-top: 8px; }
+
 /* ----- Consoles panel ---------------------------------------------------- */
 
 .panel-hint {

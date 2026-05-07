@@ -1,43 +1,71 @@
 import { describe, expect, it } from 'vitest';
 
-import { parsePonchoRom, isPonchoRom } from '../../src/core/cart-poncho/header';
+import {
+  decodeMapperSubmode,
+  isPonchoRom,
+  parsePonchoRom,
+} from '../../src/core/cart-poncho/header';
 import { detectConsole } from '../../src/console/detect';
 import { PonchoNes } from '../../src/console/poncho-nes';
 import { NES_MASTER_PALETTE_RGBA } from '../../src/core/ppu-ultra/nes-master-palette';
 import {
   ConvertError,
+  bankingVariantName,
   convertInesToPoncho,
-  expandNesChrToPoncho,
-} from '../../scripts/lib/ines-to-poncho';
+} from '../../src/convert/ines-to-poncho';
 
 /**
- * Build a synthetic minimal NROM iNES file:
- *   - 16 KB PRG (single bank, mirrored at $C000)
- *   - 8 KB CHR (one drawn tile + zeros)
- *   - mapper 0, horizontal mirroring
+ * Build a minimal synthetic iNES file in memory:
+ *   - 1 × 16 KB PRG bank by default (configurable)
+ *   - 1 × 8 KB CHR bank (or zero for CHR-RAM)
+ *   - configurable mapper id, mirroring, has-battery, has-trainer
  *
- * The reset vector points to a halt loop ($8000: JMP $8000).
+ * The PRG starts with a halt loop at $C000 (`JMP $C000`) and a reset
+ * vector pointing there, so the converted ROM can boot through the
+ * PpuUltra without crashing.
  */
-function buildSyntheticNrom(chrTile0: Uint8Array): Uint8Array {
+function buildIneS(opts: {
+  prgBanks?: number;
+  chrBanks?: number;
+  mapper?: number;
+  mirroring?: 'horizontal' | 'vertical' | 'four-screen';
+  hasBattery?: boolean;
+  hasTrainer?: boolean;
+} = {}): Uint8Array {
+  const prgBanks = opts.prgBanks ?? 1;
+  const chrBanks = opts.chrBanks ?? 1;
+  const mapper = opts.mapper ?? 0;
+  const mirroring = opts.mirroring ?? 'horizontal';
+  const hasBattery = opts.hasBattery ?? false;
+  const hasTrainer = opts.hasTrainer ?? false;
+
   const header = new Uint8Array(16);
-  header[0] = 0x4e; header[1] = 0x45; header[2] = 0x53; header[3] = 0x1a; // "NES\x1A"
-  header[4] = 1; // 1 × 16 KB PRG
-  header[5] = 1; // 1 × 8 KB CHR
-  header[6] = 0; // flags6 — mapper low nibble = 0, horizontal mirror, no battery, no trainer
-  header[7] = 0; // flags7 — mapper high nibble = 0
+  header[0] = 0x4e; header[1] = 0x45; header[2] = 0x53; header[3] = 0x1a;
+  header[4] = prgBanks;
+  header[5] = chrBanks;
+  // flags6: low nibble = mapper-low, mirroring + battery + trainer + four-screen
+  let flags6 = 0;
+  if (mirroring === 'vertical') flags6 |= 0x01;
+  if (mirroring === 'four-screen') flags6 |= 0x08;
+  if (hasBattery) flags6 |= 0x02;
+  if (hasTrainer) flags6 |= 0x04;
+  flags6 |= (mapper & 0x0f) << 4;
+  header[6] = flags6;
+  // flags7: mapper-high nibble
+  header[7] = mapper & 0xf0;
 
-  const prg = new Uint8Array(16 * 1024);
-  // Halt loop at $8000: JMP $8000.
-  prg[0x0000] = 0x4c;
-  prg[0x0001] = 0x00;
-  prg[0x0002] = 0x80;
-  // Reset vector at $FFFC = $8000. NMI/IRQ vectors stay $0000.
-  prg[0x3ffc] = 0x00;
-  prg[0x3ffd] = 0x80;
+  const prg = new Uint8Array(prgBanks * 16384);
+  // Halt loop at the start of bank 0; PRG mirrors to $C000 for NROM
+  // single-bank carts. Banking-variant carts have their own setup
+  // expectations but the loop runs even unconfigured for sanity.
+  prg[0x0000] = 0x4c; prg[0x0001] = 0x00; prg[0x0002] = 0x80;
+  // Reset vector at $FFFC = $8000 (last bank's offset 0x3FFC for 1-bank).
+  const lastBankOff = (prgBanks - 1) * 16384;
+  prg[lastBankOff + 0x3ffa] = 0x00; prg[lastBankOff + 0x3ffb] = 0x80;
+  prg[lastBankOff + 0x3ffc] = 0x00; prg[lastBankOff + 0x3ffd] = 0x80;
+  prg[lastBankOff + 0x3ffe] = 0x00; prg[lastBankOff + 0x3fff] = 0x80;
 
-  const chr = new Uint8Array(8 * 1024);
-  if (chrTile0.length !== 16) throw new Error('test tile must be 16 bytes');
-  chr.set(chrTile0, 0);
+  const chr = new Uint8Array(chrBanks * 8192);
 
   const out = new Uint8Array(header.length + prg.length + chr.length);
   out.set(header, 0);
@@ -46,91 +74,25 @@ function buildSyntheticNrom(chrTile0: Uint8Array): Uint8Array {
   return out;
 }
 
-describe('expandNesChrToPoncho', () => {
-  it('upscales a single tile to 32×32 8 bpp with 4×4 nearest-neighbour blocks', () => {
-    // NES tile encoding the value `1` in row 0, col 0; everything else 0.
-    // Plane 0 row 0 = 0b1000_0000 (bit 7 = pixel 0). Plane 1 = 0.
-    const tile = new Uint8Array(16);
-    tile[0] = 0b1000_0000;
-
-    const out = expandNesChrToPoncho(tile);
-
-    expect(out.length).toBe(1024);
-
-    // Top-left 4×4 block should all be `1`.
-    for (let y = 0; y < 4; y++) {
-      for (let x = 0; x < 4; x++) {
-        expect(out[y * 32 + x]).toBe(1);
-      }
-    }
-    // Pixel just to the right of the 4-block (col 4, row 0) should be 0.
-    expect(out[0 * 32 + 4]).toBe(0);
-    // Pixel just below the 4-block (col 0, row 4) should be 0.
-    expect(out[4 * 32 + 0]).toBe(0);
-    // Bottom-right corner = 0.
-    expect(out[31 * 32 + 31]).toBe(0);
-  });
-
-  it('preserves the 2-bpp pixel value range 0–3', () => {
-    // Full-row tile: row 0 has all four pixel values. We use bits 7..4
-    // for pixels 0..3 to make hand-checking easier.
-    // Pixel 0 = 0 (plane0=0, plane1=0)
-    // Pixel 1 = 1 (plane0=1, plane1=0)
-    // Pixel 2 = 2 (plane0=0, plane1=1)
-    // Pixel 3 = 3 (plane0=1, plane1=1)
-    const tile = new Uint8Array(16);
-    tile[0]     = 0b0101_0000; // plane 0 row 0 — bits at pixels 1, 3
-    tile[0 + 8] = 0b0011_0000; // plane 1 row 0 — bits at pixels 2, 3
-
-    const out = expandNesChrToPoncho(tile);
-
-    // Block 0 (cols 0..3, rows 0..3) → 0
-    expect(out[0]).toBe(0);
-    // Block 1 (cols 4..7) → 1
-    expect(out[4]).toBe(1);
-    // Block 2 (cols 8..11) → 2
-    expect(out[8]).toBe(2);
-    // Block 3 (cols 12..15) → 3
-    expect(out[12]).toBe(3);
-  });
-
-  it('expands many tiles in sequence', () => {
-    // 4 tiles: 64 bytes in, 4096 bytes out (4 × 1024).
-    const tiles = new Uint8Array(4 * 16);
-    const out = expandNesChrToPoncho(tiles);
-    expect(out.length).toBe(4 * 1024);
-  });
-
-  it('rejects a buffer that is not a multiple of 16 bytes', () => {
-    expect(() => expandNesChrToPoncho(new Uint8Array(15))).toThrow(ConvertError);
-  });
-});
-
-describe('convertInesToPoncho — NROM round trip', () => {
-  it('produces a PonchoROM that parses cleanly with expected sizes', () => {
-    const tile = new Uint8Array(16);
-    tile[0] = 0xff; // top row solid pixel value 1
-    const ines = buildSyntheticNrom(tile);
-
-    const result = convertInesToPoncho(ines, { title: 'Synth' });
+describe('convertInesToPoncho — header + flag plumbing', () => {
+  it('produces an upscaled-mode PonchoROM that round-trips through the parser', () => {
+    const ines = buildIneS({ prgBanks: 2, chrBanks: 1, mapper: 0 });
+    const result = convertInesToPoncho(ines, { title: 'NROM Synth' });
 
     expect(isPonchoRom(result.poncho)).toBe(true);
     const layout = parsePonchoRom(result.poncho);
-
-    expect(layout.header.title).toBe('Synth');
+    expect(layout.header.title).toBe('NROM Synth');
+    expect(layout.header.flags.upscaledMode).toBe(true);
     expect(layout.header.mapperId).toBe(1);
-    expect(layout.header.flags.upscaledMode).toBe(false);
-    expect(layout.header.prgSizeKb).toBe(16);
-    // 8 KB CHR × 64 (4×4 area expansion of 1 byte/pixel) ÷ 1024 = 512 KB
-    expect(layout.header.chrSizeKb).toBe(512);
-    // The canonical NES master palette has 64 entries.
+    expect(layout.header.prgSizeKb).toBe(32);
+    expect(layout.header.chrSizeKb).toBe(8);
+    expect(layout.header.chrRamKb).toBe(0);
+    // 64-entry NES canonical palette.
     expect(layout.header.paletteCount).toBe(64);
   });
 
   it('embeds the canonical NES master palette', () => {
-    const ines = buildSyntheticNrom(new Uint8Array(16));
-    const { poncho } = convertInesToPoncho(ines);
-
+    const { poncho } = convertInesToPoncho(buildIneS({}));
     const layout = parsePonchoRom(poncho);
     const slice = poncho.subarray(
       layout.paletteOffset,
@@ -139,57 +101,106 @@ describe('convertInesToPoncho — NROM round trip', () => {
     expect(slice).toEqual(NES_MASTER_PALETTE_RGBA);
   });
 
-  it('records the source iNES CRC32', () => {
-    const ines = buildSyntheticNrom(new Uint8Array(16));
-    const { poncho } = convertInesToPoncho(ines);
+  it('records the source iNES CRC32 in the header', () => {
+    const { poncho } = convertInesToPoncho(buildIneS({}));
     const layout = parsePonchoRom(poncho);
-    // Non-zero — converter computed it from the input bytes.
     expect(layout.header.sourceInesCrc32).not.toBe(0);
   });
 
-  it('reports the source mapper, mirroring, and CHR expansion ratio', () => {
-    const ines = buildSyntheticNrom(new Uint8Array(16));
-    const { notes } = convertInesToPoncho(ines);
-    expect(notes.sourceMapper).toBe(0);
-    expect(notes.sourceMirroring).toBe('horizontal');
-    expect(notes.prgKb).toBe(16);
-    expect(notes.chrKbSource).toBe(8);
-    expect(notes.chrKbExpanded).toBe(512);
-  });
-
-  it('truncates titles longer than 32 bytes', () => {
-    const ines = buildSyntheticNrom(new Uint8Array(16));
+  it('truncates titles longer than 32 UTF-8 bytes', () => {
     const longTitle = 'A'.repeat(50);
-    const { poncho } = convertInesToPoncho(ines, { title: longTitle });
+    const { poncho } = convertInesToPoncho(buildIneS({}), { title: longTitle });
     const layout = parsePonchoRom(poncho);
     expect(layout.header.title.length).toBe(32);
   });
 });
 
-describe('convertInesToPoncho — error paths', () => {
-  it('rejects mapper != 0', () => {
-    const ines = buildSyntheticNrom(new Uint8Array(16));
-    // Force mapper = 1 (MMC1) by setting flags6 high nibble.
-    ines[6] = 0x10;
-    expect(() => convertInesToPoncho(ines)).toThrow(/Mapper 1/);
-  });
+describe('convertInesToPoncho — mapper id mapping', () => {
+  const cases: Array<[number, 0 | 1 | 2 | 3 | 4 | 7, string]> = [
+    [0, 0, 'NROM'],
+    [1, 1, 'MMC1'],
+    [2, 2, 'UxROM'],
+    [3, 3, 'CNROM'],
+    [4, 4, 'MMC3'],
+    [7, 7, 'AxROM'],
+  ];
+  for (const [iNESMapper, expectedVariant, name] of cases) {
+    it(`maps iNES mapper ${iNESMapper} (${name}) → banking variant ${expectedVariant}`, () => {
+      const { poncho, notes } = convertInesToPoncho(buildIneS({ mapper: iNESMapper, prgBanks: 4 }));
+      expect(notes.bankingVariant).toBe(expectedVariant);
+      expect(bankingVariantName(notes.bankingVariant)).toBe(name);
+      const layout = parsePonchoRom(poncho);
+      expect(decodeMapperSubmode(layout.header.mapperSubmode).bankingVariant).toBe(expectedVariant);
+    });
+  }
+});
 
-  it('rejects CHR-RAM games (chrRomBanks = 0)', () => {
-    const ines = buildSyntheticNrom(new Uint8Array(16));
-    ines[5] = 0; // 0 CHR banks
-    expect(() => convertInesToPoncho(ines)).toThrow(/CHR-RAM/);
-  });
-
-  it('rejects ROMs with a trainer block', () => {
-    const ines = buildSyntheticNrom(new Uint8Array(16));
-    ines[6] = 0x04; // flags6 trainer bit
-    expect(() => convertInesToPoncho(ines)).toThrow(/trainer/i);
+describe('convertInesToPoncho — mirroring mapping', () => {
+  it('maps horizontal/vertical/four-screen iNES mirroring into mapper_submode', () => {
+    const cases = [
+      ['horizontal', 0],
+      ['vertical', 1],
+      ['four-screen', 2],
+    ] as const;
+    for (const [mirror, expected] of cases) {
+      const { poncho } = convertInesToPoncho(buildIneS({ mirroring: mirror }));
+      const layout = parsePonchoRom(poncho);
+      expect(decodeMapperSubmode(layout.header.mapperSubmode).bootMirroring).toBe(expected);
+    }
   });
 });
 
-describe('convertInesToPoncho — loads in PonchoNes without error', () => {
-  it('detect → load → runFrame produces a 1024×960 frame', () => {
-    const ines = buildSyntheticNrom(new Uint8Array(16));
+describe('convertInesToPoncho — CHR-ROM vs CHR-RAM', () => {
+  it('CHR-ROM games embed CHR verbatim and leave chrRamKb=0', () => {
+    const { poncho, notes } = convertInesToPoncho(buildIneS({ chrBanks: 2 }));
+    const layout = parsePonchoRom(poncho);
+    expect(layout.header.chrSizeKb).toBe(16);
+    expect(layout.header.chrRamKb).toBe(0);
+    expect(notes.chrKb).toBe(16);
+    expect(notes.chrRamKb).toBe(0);
+  });
+
+  it('CHR-RAM games (chrBanks=0) emit chrSizeKb=0 + chrRamKb=8', () => {
+    const { poncho, notes } = convertInesToPoncho(
+      buildIneS({ mapper: 2, chrBanks: 0 }), // UxROM is canonical CHR-RAM mapper
+    );
+    const layout = parsePonchoRom(poncho);
+    expect(layout.header.chrSizeKb).toBe(0);
+    expect(layout.header.chrRamKb).toBe(8);
+    expect(notes.chrKb).toBe(0);
+    expect(notes.chrRamKb).toBe(8);
+  });
+});
+
+describe('convertInesToPoncho — error paths', () => {
+  it('rejects unsupported mappers', () => {
+    expect(() => convertInesToPoncho(buildIneS({ mapper: 5 })))
+      .toThrow(/mapper 5 is not supported/);
+    expect(() => convertInesToPoncho(buildIneS({ mapper: 9 })))
+      .toThrow(/mapper 9 is not supported/);
+    expect(() => convertInesToPoncho(buildIneS({ mapper: 11 })))
+      .toThrow(/not supported/);
+  });
+
+  it('rejects ROMs with a trainer block', () => {
+    expect(() => convertInesToPoncho(buildIneS({ hasTrainer: true })))
+      .toThrow(/trainer/i);
+  });
+
+  it('throws ConvertError specifically (not a generic Error)', () => {
+    let caught: unknown = null;
+    try {
+      convertInesToPoncho(buildIneS({ mapper: 5 }));
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ConvertError);
+  });
+});
+
+describe('convertInesToPoncho — boots through PonchoNes.loadRom', () => {
+  it('detect → load → runFrame produces a 1024×960 frame for a converted NROM ROM', () => {
+    const ines = buildIneS({ mapper: 0, prgBanks: 1, chrBanks: 1 });
     const { poncho } = convertInesToPoncho(ines);
 
     const factory = detectConsole(poncho);
@@ -198,11 +209,19 @@ describe('convertInesToPoncho — loads in PonchoNes without error', () => {
 
     const console = factory!.create();
     expect(console).toBeInstanceOf(PonchoNes);
-
     console.loadRom(poncho);
     const fb = console.runFrame();
-
     expect(fb.width).toBe(1024);
     expect(fb.height).toBe(960);
+  });
+
+  it('a converted UxROM CHR-RAM cart loads cleanly (boots into halt loop)', () => {
+    const ines = buildIneS({ mapper: 2, prgBanks: 4, chrBanks: 0 });
+    const { poncho } = convertInesToPoncho(ines);
+    const factory = detectConsole(poncho);
+    const console = factory!.create() as PonchoNes;
+    console.loadRom(poncho);
+    expect(() => console.runFrame()).not.toThrow();
+    expect(console.cartridge!.chrIsRam).toBe(true);
   });
 });
