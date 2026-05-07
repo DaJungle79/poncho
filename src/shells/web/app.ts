@@ -123,7 +123,8 @@ export class App {
       onStatus: (text) => this.setStatus(text),
     });
     this.stack.registerL2(this.romsPanel);
-    this.romsPanel.setConsoleId(this.config.get().general.selectedConsoleId);
+    const initialSpec = ALL_SPECS.find((s) => s.id === this.config.get().general.selectedConsoleId) ?? ALL_SPECS[0]!;
+    this.romsPanel.setConsoleId(initialSpec.id, initialSpec.name);
 
     this.settingsPanel = new SettingsPanel({
       config: this.config,
@@ -158,7 +159,7 @@ export class App {
     this.sidebar.add({
       id: 'roms',
       panelId: 'roms',
-      label: 'ROMs',
+      label: `${initialSpec.name} ROMs`,
       position: 'top',
       hotkey: '1',
       icon: () => {
@@ -332,8 +333,9 @@ export class App {
     this.nes.setController(1, this.keyboard);
 
     this.sidebar.setTooltip('consoles', this.consoleLabelFromId(spec.id));
+    this.sidebar.setTooltip('roms', `${spec.name} ROMs`);
     this.settingsPanel.setConsoleId(spec.id);
-    this.romsPanel.setConsoleId(spec.id);
+    this.romsPanel.setConsoleId(spec.id, spec.name);
     this.setStatus(`${spec.name} selected.`);
   }
 

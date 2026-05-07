@@ -36,6 +36,7 @@ export class RomsPanel implements Panel {
   readonly id = 'roms';
   readonly root: HTMLElement;
 
+  private readonly panelTitle: HTMLHeadingElement;
   private readonly browserList: HTMLUListElement;
   private readonly serverList: HTMLUListElement;
   private readonly serverSection: HTMLElement;
@@ -48,7 +49,7 @@ export class RomsPanel implements Panel {
     this.root.className = 'panel panel-l2';
     this.root.innerHTML = `
       <header class="panel-head">
-        <h2>ROMs</h2>
+        <h2 data-panel-title>NES ROMs</h2>
       </header>
       <div class="panel-body">
         <section class="rom-section">
@@ -73,6 +74,7 @@ export class RomsPanel implements Panel {
     cassette.classList.add('panel-head-icon');
     head.prepend(cassette);
 
+    this.panelTitle = this.root.querySelector<HTMLHeadingElement>('[data-panel-title]')!;
     this.browserList = this.root.querySelector<HTMLUListElement>('[data-browser-list]')!;
     this.serverList = this.root.querySelector<HTMLUListElement>('[data-server-list]')!;
     this.serverSection = this.root.querySelector<HTMLElement>('[data-server-section]')!;
@@ -93,15 +95,12 @@ export class RomsPanel implements Panel {
     void this.refreshServerList();
   }
 
-  /**
-   * Update panel chrome that depends on the active console. Today: the
-   * upload button label widens to ".nes or .poncho" on Poncho-NES,
-   * which accepts both formats. Classic NES is `.nes` only.
-   */
-  setConsoleId(consoleId: string): void {
+  /** Update panel chrome and ROM lists for the newly-active console. */
+  setConsoleId(consoleId: string, consoleName: string): void {
     this.consoleId = consoleId;
+    this.panelTitle.textContent = `${consoleName} ROMs`;
     this.uploadLabel.textContent = consoleId === 'poncho-nes'
-      ? 'Upload .nes or .poncho'
+      ? 'Upload .poncho'
       : 'Upload .nes';
   }
 
@@ -113,17 +112,19 @@ export class RomsPanel implements Panel {
 
   private async refreshBrowserList(): Promise<void> {
     this.browserList.innerHTML = '<li class="rom-empty">…</li>';
-    let entries: StoredRomEntry[] = [];
+    let all: StoredRomEntry[] = [];
     try {
-      entries = await this.deps.romLibrary.list();
+      all = await this.deps.romLibrary.list();
     } catch (err) {
       this.browserList.innerHTML =
         `<li class="rom-empty">Storage unavailable: ${(err as Error).message}</li>`;
       return;
     }
+    const ext = this.consoleId === 'poncho-nes' ? '.poncho' : '.nes';
+    const entries = all.filter((e) => e.name.toLowerCase().endsWith(ext));
     if (entries.length === 0) {
       this.browserList.innerHTML =
-        '<li class="rom-empty">Upload a .nes file to add it here.</li>';
+        `<li class="rom-empty">Upload a ${ext} file to add it here.</li>`;
       return;
     }
     this.browserList.innerHTML = '';
@@ -185,16 +186,18 @@ export class RomsPanel implements Panel {
   private async refreshServerList(): Promise<void> {
     if (!this.deps.serverRoms) return;
     this.serverList.innerHTML = '<li class="rom-empty">Scanning…</li>';
-    let files: string[] = [];
+    let all: string[] = [];
     try {
-      files = await this.deps.serverRoms.list();
+      all = await this.deps.serverRoms.list();
     } catch {
       this.serverList.innerHTML = '<li class="rom-empty">Server unreachable.</li>';
       return;
     }
+    const ext = this.consoleId === 'poncho-nes' ? '.poncho' : '.nes';
+    const files = all.filter((f) => f.toLowerCase().endsWith(ext));
     if (files.length === 0) {
       this.serverList.innerHTML =
-        '<li class="rom-empty">Drop .nes files in <code>roms/</code>.</li>';
+        `<li class="rom-empty">Drop ${ext} files in <code>roms/</code>.</li>`;
       return;
     }
     this.serverList.innerHTML = '';
@@ -230,8 +233,8 @@ export class RomsPanel implements Panel {
 
   private bindEvents(): void {
     this.btnUpload.addEventListener('click', async () => {
-      const accept = this.consoleId === 'poncho-nes' ? ['.nes', '.poncho'] : ['.nes'];
-      this.setStatus(`Choose a ${accept.join(' or ')} file…`);
+      const accept = this.consoleId === 'poncho-nes' ? ['.poncho'] : ['.nes'];
+      this.setStatus(`Choose a ${accept[0]} file…`);
       let rom: LoadedRom | null;
       try {
         rom = await this.deps.filePicker.pick({ accept });
