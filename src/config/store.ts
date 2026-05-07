@@ -47,15 +47,19 @@ export class ConfigStore {
 }
 
 /**
- * Future-proof migration. For v1 we only fill missing fields with defaults.
- * When the schema bumps, branch on `parsed.version` here.
+ * Migrate a stored config blob to the current schema version.
+ *
+ * v1 → v2: overscan was briefly a boolean, then an object with wrong
+ *   defaults (8/8/8/8). Reset it to the v2 defaults so all users get
+ *   the correct Left-8-only crop out of the box.
  */
 function migrate(parsed: Partial<Config>): Config {
   const rawVideo = parsed.video ?? {};
-  // Guard: overscan was briefly a boolean — coerce to the object shape.
-  const rawOverscan = (rawVideo as Record<string, unknown>)['overscan'];
-  const overscan = (rawOverscan !== null && typeof rawOverscan === 'object')
-    ? { ...DEFAULT_CONFIG.video.overscan, ...(rawOverscan as object) }
+
+  // v1 → v2: always reset overscan to defaults so stale 8/8/8/8 values
+  // (and the old boolean shape) are discarded.
+  const overscan = (parsed.version ?? 0) >= 2
+    ? mergeOverscan((rawVideo as Record<string, unknown>)['overscan'])
     : DEFAULT_CONFIG.video.overscan;
 
   const merged: Config = {
@@ -69,4 +73,11 @@ function migrate(parsed: Partial<Config>): Config {
     general: { ...DEFAULT_CONFIG.general, ...(parsed.general ?? {}) },
   };
   return merged;
+}
+
+function mergeOverscan(raw: unknown) {
+  if (raw !== null && typeof raw === 'object') {
+    return { ...DEFAULT_CONFIG.video.overscan, ...(raw as object) };
+  }
+  return DEFAULT_CONFIG.video.overscan;
 }

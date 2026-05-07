@@ -622,6 +622,7 @@ select:focus-visible {
   padding: 8px 0 4px;
   border-bottom: 1px solid var(--line-soft);
 }
+.overscan-inputs[hidden] { display: none; }
 .overscan-field {
   display: flex;
   align-items: center;
@@ -836,7 +837,6 @@ html[data-status-bar='hidden'] .layout-main { padding-bottom: 20px; }
   height: auto;
   max-width: 100%;
   max-height: 100%;
-  aspect-ratio: 16 / 15;
 }
 
 /* Sticky status bar pinned to the viewport bottom. Sits on top of the

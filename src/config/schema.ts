@@ -2,7 +2,7 @@ import type { NesButton } from '../core/input/source';
 import type { ScalerId } from '../renderer/scalers';
 import type { FilterId } from '../renderer/filters';
 
-export const CONFIG_VERSION = 1;
+export const CONFIG_VERSION = 2;
 
 export type KeyBindings = Record<string, NesButton>;
 
