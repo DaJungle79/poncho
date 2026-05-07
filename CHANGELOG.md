@@ -8,6 +8,11 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **Sprite-0 hit + 8×16 sprite mode (Phase 6 of v0.3.0)** —
+  - **Sprite-0 hit** detection in upscaled mode. PpuUltra walks sprite-0 against the BG layer at the pre-render scanline (using the just-set-up state from PRG's vblank writes), records the first NES scanline where an opaque sprite-0 pixel collides with an opaque BG pixel, and sets PPUSTATUS bit 6 (and `ppu.sprite0Hit`) at that scanline's dot 1 during the upcoming visible region. Hardware quirks honoured: hidden sprites (`y >= 0xEF`), the `x = 255` no-fire rule, and "both BG + sprites enabled" gating. Pixel-exact dot precision still requires Phase 7's scanline-grained render refactor.
+  - **8×16 sprite mode** (PPUCTRL bit 5). The OAM tile-index encodes both the pattern table (LSB) and the tile pair (bits 1–7); top tile = `tile & 0xFE`, bottom tile = top + 1. PPUCTRL bit 3 is ignored in 8×16 mode. Renders as a 32×64 Poncho block (4× the 8×16 NES sprite). Mode applies to both visual rendering and sprite-0 hit detection.
+  - Two synthetic test ROMs: [`sprite0-hit.poncho`](tests/roms/poncho/sprite0-hit.poncho) (PRG places sprite-0 at NES (50, 100) overlapping fully-opaque BG; verifies `sprite0Hit` is set after one full frame and `$2002` returns bit 6) and [`sprite-8x16.poncho`](tests/roms/poncho/sprite-8x16.poncho) (PPUCTRL = $20, sprite tile = 0x00, two 8×8 tiles uploaded; verifies a 32×64 red block at Poncho (32, 64)..(63, 127)).
+  - 11 new tests (8 unit covering hit detection + visibility/quirk gating + flag-clear timing + 8×16 render in both pattern tables; 3 integration). Total: 344 passed, 1 skipped.
 - **Upscaled-OAM render path (Phase 5 of v0.3.0)** —
   - `$4014` OAM DMA copies 256 bytes when the cart is in upscaled mode (was always 512). PpuUltra reads exactly the NES-shape page that converted PRG knows how to populate.
   - New `renderSpritesUpscaled()` walks 64 × 4-byte NES OAM entries (`[y, tile, attr, x]`). Position is scaled ×4 from NES → Poncho px so a sprite at NES (8, 16) lands at Poncho (32, 64) as a 32 × 32 block. Sprite tile bytes fetched via `chrReader` at `spritePatternBase + tile * 16`. Sub-palette from attr bits 0-1; flip-H from bit 6; flip-V from bit 7. Off-screen y values (≥ 0xEF) skip rendering.

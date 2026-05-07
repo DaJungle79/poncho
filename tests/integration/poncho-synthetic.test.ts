@@ -208,6 +208,75 @@ describe('synthetic PonchoROM: single-sprite', () => {
   );
 });
 
+describe('synthetic PonchoROM: sprite0-hit', () => {
+  const path = testRomPath('poncho/sprite0-hit.poncho');
+
+  it.skipIf(!existsSync(path))(
+    'declares upscaled mode + 8 KB CHR-RAM',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const { header } = parsePonchoRom(data);
+      expect(header.flags.upscaledMode).toBe(true);
+      expect(header.chrRamKb).toBe(8);
+    },
+  );
+
+  it.skipIf(!existsSync(path))(
+    'PpuUltra.sprite0Hit becomes true after one full frame; status bit 6 readable via $2002',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const factory = detectConsole(data);
+      const console = factory!.create() as PonchoNes;
+      console.loadRom(data);
+
+      // Frame 0: PRG sets up tile + palette + OAM + halts.
+      console.runFrame();
+      // Frame 1: pre-render computes sprite0HitScanline; visible scanlines
+      // set the flag at scanline 100.
+      console.runFrame();
+
+      expect(console.ppu.sprite0Hit).toBe(true);
+
+      // Reading $2002 reflects bit 6 (and clears the vblank flag as a
+      // side effect — sprite-0 hit stays set until pre-render of next
+      // frame).
+      const status = console.cpuBus.read(0x2002);
+      expect((status & 0x40) !== 0).toBe(true);
+    },
+  );
+});
+
+describe('synthetic PonchoROM: sprite-8x16', () => {
+  const path = testRomPath('poncho/sprite-8x16.poncho');
+
+  it.skipIf(!existsSync(path))(
+    'PRG enables 8×16 mode; sprite renders as a 32×64 block at Poncho (32, 64)..(63, 127)',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const factory = detectConsole(data);
+      const console = factory!.create() as PonchoNes;
+      console.loadRom(data);
+      console.runFrame();
+      const fb = console.runFrame();
+
+      const red = 0xff0000ff;
+      const black = 0xff000000;
+      const px = (y: number, x: number) => fb.data[y * 1024 + x];
+
+      // Top of sprite (NES y=16 → Poncho y=64).
+      expect(px(64, 32)).toBe(red);
+      expect(px(64, 63)).toBe(red);
+      // Mid-sprite — bottom-half rows. NES y=24..31 → Poncho 96..127.
+      expect(px(95, 32)).toBe(red);    // last row of top half
+      expect(px(96, 32)).toBe(red);    // first row of bottom half
+      expect(px(127, 32)).toBe(red);   // bottom of sprite
+      // Just outside.
+      expect(px(63, 48)).toBe(black);  // one row above
+      expect(px(128, 48)).toBe(black); // one row below the 8×16 block
+    },
+  );
+});
+
 describe('synthetic PonchoROM: upscaled-sprite', () => {
   const path = testRomPath('poncho/upscaled-sprite.poncho');
 

@@ -191,6 +191,71 @@ describe('PpuUltra — upscaled-OAM sprite render', () => {
   });
 });
 
+describe('PpuUltra — 8×16 sprite mode', () => {
+  it('renders an 8×16 sprite as a 32×64 block (top tile + bottom tile)', () => {
+    const ppu = new PpuUltra();
+    ppu.setMasterPalette(rgbaPalette([0x00, 0x00, 0x00], [0xff, 0x00, 0x00]));
+    ppu.setUpscaledMode(true);
+
+    // Tile 0 = top half opaque (plane 0 = 0xFF × 8). Tile 1 = bottom half
+    // opaque (same content, at $0010-$001F).
+    const chr = new Uint8Array(8192);
+    for (let i = 0; i < 8; i++) chr[i] = 0xff;
+    for (let i = 16; i < 24; i++) chr[i] = 0xff;
+    ppu.setChrReader((addr) => chr[addr & 0x1fff]!);
+
+    // Sprite sub-palette 0 entry 1 → red.
+    ppu.cpuWrite(0x2006, 0x3f); ppu.cpuWrite(0x2006, 0x11); ppu.cpuWrite(0x2007, 0x01);
+
+    // PPUCTRL bit 5 → 8×16 sprite mode.
+    ppu.cpuWrite(0x2000, 0x20);
+
+    // Sprite-0: y=16, tile=0 (LSB=0 → pattern $0000; pair 0 → top tile 0,
+    // bottom tile 1), attr=0, x=8.
+    ppu.cpuWrite(0x2003, 0); ppu.cpuWrite(0x2004, 16);
+    ppu.cpuWrite(0x2004, 0); ppu.cpuWrite(0x2004, 0);
+    ppu.cpuWrite(0x2004, 8);
+
+    ppu.renderFrame();
+
+    const fb = ppu.framebuffer.data;
+    const px = (y: number, x: number) => fb[y * 1024 + x];
+    // 8×16 sprite at NES (8, 16) → Poncho (32..63, 64..127).
+    expect(px(64, 32)).toBe(RED);    // top
+    expect(px(95, 32)).toBe(RED);    // last row of top tile
+    expect(px(96, 32)).toBe(RED);    // first row of bottom tile
+    expect(px(127, 32)).toBe(RED);   // bottom
+    // Just outside.
+    expect(px(63, 32)).toBe(BLACK);
+    expect(px(128, 32)).toBe(BLACK);
+  });
+
+  it('uses pattern table $1000 when tile LSB is set in 8×16 mode', () => {
+    const ppu = new PpuUltra();
+    ppu.setMasterPalette(rgbaPalette([0x00, 0x00, 0x00], [0xff, 0x00, 0x00]));
+    ppu.setUpscaledMode(true);
+
+    // Place tile data at PPU $1000 (top of pattern table 1) only;
+    // tile LSB selects pattern table $1000.
+    const chr = new Uint8Array(8192);
+    for (let i = 0x1000; i < 0x1008; i++) chr[i] = 0xff;
+    for (let i = 0x1010; i < 0x1018; i++) chr[i] = 0xff;
+    ppu.setChrReader((addr) => chr[addr & 0x1fff]!);
+
+    ppu.cpuWrite(0x2006, 0x3f); ppu.cpuWrite(0x2006, 0x11); ppu.cpuWrite(0x2007, 0x01);
+    ppu.cpuWrite(0x2000, 0x20); // 8×16 mode
+
+    // tile = 0x01: LSB=1 → pattern $1000; pair 0 → tiles $1000-$1010
+    // (after tile_idx & 0xFE = 0).
+    ppu.cpuWrite(0x2003, 0); ppu.cpuWrite(0x2004, 16);
+    ppu.cpuWrite(0x2004, 0x01); ppu.cpuWrite(0x2004, 0); ppu.cpuWrite(0x2004, 8);
+
+    ppu.renderFrame();
+    expect(ppu.framebuffer.data[64 * 1024 + 32]).toBe(RED);
+    expect(ppu.framebuffer.data[127 * 1024 + 32]).toBe(RED);
+  });
+});
+
 describe('PpuUltra — $4014 OAM DMA size in upscaled mode', () => {
   it('reads 256 bytes when upscaled mode is on', () => {
     const ppu = new PpuUltra();

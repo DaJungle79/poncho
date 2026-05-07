@@ -127,8 +127,16 @@ export class PpuUltra {
 
   // ----- $2002 PPUSTATUS bits -----
   private vblankFlag = false;
-  private sprite0Hit = false;
+  /** True once sprite-0's first opaque pixel has hit an opaque BG pixel this frame. */
+  sprite0Hit = false;
   private spriteOverflow = false;
+  /**
+   * Pre-computed NES scanline at which sprite-0 first overlaps BG with both
+   * pixels opaque. Set at the pre-render scanline using the current PPU
+   * state; consumed during visible scanlines to set the sprite-0 hit flag
+   * at the right moment. -1 = no hit this frame.
+   */
+  private sprite0HitScanline = -1;
 
   // ----- $2005 PPUSCROLL latched scroll values -----
   private scrollX = 0;
@@ -236,6 +244,7 @@ export class PpuUltra {
     this.vblankFlag = false;
     this.sprite0Hit = false;
     this.spriteOverflow = false;
+    this.sprite0HitScanline = -1;
     this.scrollX = 0;
     this.scrollY = 0;
     // Note: chr stays set across reset (wired by loadRom, not by PRG).
@@ -354,6 +363,21 @@ export class PpuUltra {
       this.vblankFlag = false;
       this.sprite0Hit = false;
       this.spriteOverflow = false;
+      // Pre-compute the upcoming frame's sprite-0 hit scanline using the
+      // current state (PRG had vblank to set up nametable / OAM / palette).
+      // Consumed during visible scanlines below.
+      this.sprite0HitScanline = this.computeSprite0HitScanline();
+    }
+    // Sprite-0 hit fires at the dot of collision during visible rendering.
+    // We fire at dot 1 of the pre-computed scanline as a deterministic
+    // approximation; pixel-exact dot detection arrives with Phase 7's
+    // scanline-grained render refactor.
+    if (
+      this.sprite0HitScanline >= 0 &&
+      this.scanline === this.sprite0HitScanline &&
+      this.dot === VBLANK_DOT
+    ) {
+      this.sprite0Hit = true;
     }
 
     this.dot++;
@@ -610,17 +634,21 @@ export class PpuUltra {
 
   /**
    * Upscaled-mode sprite render. Walks 64 × 4-byte NES OAM entries
-   * (`[y, tile, attr, x]`) and paints each 8×8 NES sprite as a 32×32
-   * block in the 1024×960 framebuffer. Position is scaled ×4 from NES
-   * to Poncho px.
+   * (`[y, tile, attr, x]`) and paints each NES sprite as a 4×-scaled
+   * block in the 1024×960 framebuffer.
    *
    *   attr bit 0-1 — sub-palette (0..3, into the 16-byte sprite palette)
-   *   attr bit 5   — BG priority (NOT yet honoured; lands in Phase 6)
+   *   attr bit 5   — BG priority (NOT yet honoured; sprite priority + BG
+   *                  layering will be tackled together with the sprite-0
+   *                  hit precision pass)
    *   attr bit 6   — flip-H
    *   attr bit 7   — flip-V
    *
-   * Sprite size: 8×8 only for v1; 8×16 mode (PPUCTRL bit 5) lands in
-   * Phase 6 along with sprite-0 hit.
+   * Sprite height: PPUCTRL bit 5 (`spriteSize16`) selects 8×16 (32×64
+   * Poncho px) over 8×8. In 8×16 mode the OAM tile-index encodes both
+   * the pattern table (LSB) and the tile pair (bits 1–7); top tile =
+   * `tile & 0xFE`, bottom tile = top + 1. PPUCTRL bit 3 is ignored in
+   * 8×16 mode.
    *
    * Draw order matches the existing native sprite path (index 0 first;
    * later indices overwrite earlier). Real NES priority is the inverse;
@@ -637,6 +665,8 @@ export class PpuUltra {
     const master = this.masterPalette;
     const masterLen = master.length;
     const patternBase = this.spritePatternBase;
+    const sprite16 = this.spriteSize16;
+    const spriteHeight = sprite16 ? 16 : 8;
 
     for (let s = 0; s < 64; s++) {
       const o = s * 4;
@@ -652,15 +682,17 @@ export class PpuUltra {
       const subPalette = attr & 0x3;
       const flipH = (attr & 0x40) !== 0;
       const flipV = (attr & 0x80) !== 0;
-      const tileBase = patternBase + tile * 16;
 
       const dstX0 = xNes * 4;
       const dstY0 = yNes * 4;
 
-      for (let py = 0; py < 8; py++) {
-        const ty = flipV ? (7 - py) : py;
-        const plane0 = reader(tileBase + ty) & 0xff;
-        const plane1 = reader(tileBase + 8 + ty) & 0xff;
+      for (let py = 0; py < spriteHeight; py++) {
+        const ty = flipV ? (spriteHeight - 1 - py) : py;
+        const { tileBase, tyInTile } = sprite16
+          ? sprite16TileLookup(tile, ty)
+          : { tileBase: patternBase + tile * 16, tyInTile: ty };
+        const plane0 = reader(tileBase + tyInTile) & 0xff;
+        const plane1 = reader(tileBase + 8 + tyInTile) & 0xff;
         const blockY0 = dstY0 + py * 4;
         if (blockY0 >= ULTRA_HEIGHT) break;
         const blockYRows = Math.min(4, ULTRA_HEIGHT - blockY0);
@@ -719,6 +751,107 @@ export class PpuUltra {
    * driving a full frame). The next `renderFrame()` overwrites it tile-
    * by-tile if there's actual tile data to draw.
    */
+  /**
+   * Read the BG pixel value (0..3) at NES coord (nx, ny). Mirrors the
+   * inner loop of `renderFrameUpscaled` for a single pixel — used by
+   * sprite-0 hit detection. Returns 0 (transparent) when BG is disabled
+   * or no chrReader is wired.
+   */
+  private bgPixelAtNes(nx: number, ny: number): number {
+    const reader = this.chrReader;
+    if (reader === null || !this.showBackground) return 0;
+    const baseNTH = this.baseNametable & 1;
+    const baseNTV = (this.baseNametable >> 1) & 1;
+    const NES_W = 256;
+    const NES_H = 240;
+    const VW = NES_W * 2;
+    const VH = NES_H * 2;
+    const effSx = (this.scrollX + baseNTH * NES_W) % VW;
+    const effSy = (this.scrollY + baseNTV * NES_H) % VH;
+    const virtualNesX = (nx + effSx) % VW;
+    const virtualNesY = (ny + effSy) % VH;
+    const ntH = (virtualNesX / NES_W) | 0;
+    const ntV = (virtualNesY / NES_H) | 0;
+    const localNesX = virtualNesX - ntH * NES_W;
+    const localNesY = virtualNesY - ntV * NES_H;
+    const tileCol = (localNesX / 8) | 0;
+    const tileRow = (localNesY / 8) | 0;
+    const tileLocalX = localNesX & 7;
+    const tileLocalY = localNesY & 7;
+    const logicalNT = ntV * 2 + ntH;
+    const physicalNT = resolvePhysicalNT(logicalNT, this.nametableMirroring);
+    const physBase = physicalNT * NAMETABLE_SIZE;
+    const tileIdx = this.nametableRam[physBase + tileRow * TILE_COLS + tileCol]!;
+    const baseAddr = this.bgPatternBase + tileIdx * 16;
+    const plane0 = reader(baseAddr + tileLocalY) & 0xff;
+    const plane1 = reader(baseAddr + 8 + tileLocalY) & 0xff;
+    const bit = 7 - tileLocalX;
+    return ((plane0 >> bit) & 1) | (((plane1 >> bit) & 1) << 1);
+  }
+
+  /**
+   * Read sprite-0's pixel value (0..3) at sprite-local coord (px, py).
+   * Honours flip-H/V and 8×16 mode. Used by sprite-0 hit detection.
+   */
+  private sprite0PixelAt(px: number, py: number): number {
+    const reader = this.chrReader;
+    if (reader === null) return 0;
+    const tile = this.oamRam[1]!;
+    const attr = this.oamRam[2]!;
+    const flipH = (attr & 0x40) !== 0;
+    const flipV = (attr & 0x80) !== 0;
+    const spriteH = this.spriteSize16 ? 16 : 8;
+    if (px >= 8 || py >= spriteH) return 0;
+
+    const tx = flipH ? (7 - px) : px;
+    const ty = flipV ? (spriteH - 1 - py) : py;
+    const { tileBase, tyInTile } = this.spriteSize16
+      ? sprite16TileLookup(tile, ty)
+      : { tileBase: this.spritePatternBase + tile * 16, tyInTile: ty };
+    const plane0 = reader(tileBase + tyInTile) & 0xff;
+    const plane1 = reader(tileBase + 8 + tyInTile) & 0xff;
+    const bit = 7 - tx;
+    return ((plane0 >> bit) & 1) | (((plane1 >> bit) & 1) << 1);
+  }
+
+  /**
+   * Walk sprite-0's pixels and return the first NES scanline at which an
+   * opaque sprite-0 pixel collides with an opaque BG pixel. Returns -1
+   * when no hit happens this frame.
+   *
+   * Hardware quirks honoured:
+   *   - Sprite y ≥ 0xEF marks the sprite hidden (no hit).
+   *   - x = 255 never produces a sprite-0 hit.
+   *   - Both BG and sprite layers must be enabled in PPUMASK.
+   *
+   * Native-mode hit detection arrives later — for now native carts get
+   * -1 (the path renders 32×32 native sprites; same logic applies but
+   * with different addressing).
+   */
+  private computeSprite0HitScanline(): number {
+    if (!this.upscaledMode) return -1;
+    if (!this.showSprites || !this.showBackground) return -1;
+    if (this.chrReader === null) return -1;
+    const yNes = this.oamRam[0]!;
+    if (yNes >= 0xef) return -1;
+    const xNes = this.oamRam[3]!;
+    const spriteH = this.spriteSize16 ? 16 : 8;
+
+    for (let py = 0; py < spriteH; py++) {
+      const ny = yNes + py;
+      if (ny >= 240) break;
+      for (let px = 0; px < 8; px++) {
+        const nx = xNes + px;
+        if (nx >= 256) break;
+        if (nx === 255) continue; // hardware quirk
+        if (this.sprite0PixelAt(px, py) === 0) continue;
+        if (this.bgPixelAtNes(nx, ny) === 0) continue;
+        return ny;
+      }
+    }
+    return -1;
+  }
+
   private refreshBgColor(): void {
     if (this.masterPalette.length === 0) {
       this.bgColor = 0xff000000;
@@ -747,4 +880,25 @@ export function resolvePhysicalNT(logicalNT: number, mirroring: Mirroring): 0 | 
     case 'single-high': return 1;
     case 'four-screen': return (lnt & 1) as 0 | 1;        // TODO: full 4-screen via cart VRAM
   }
+}
+
+/**
+ * 8×16 sprite tile lookup. The OAM tile-index encodes both the pattern
+ * table (LSB) and the tile pair (bits 1–7) in 8×16 mode; PPUCTRL bit 3
+ * (the 8×8 sprite-pattern-base) is ignored.
+ *
+ *   table_base = (tile & 1) * 0x1000
+ *   top_tile   = tile & 0xFE
+ *   bottom_tile = top_tile + 1
+ *
+ * `ty` is the row within the 16-tall sprite (0..15). Rows 0–7 fetch from
+ * the top tile, 8–15 from the bottom.
+ */
+function sprite16TileLookup(tile: number, ty: number): { tileBase: number; tyInTile: number } {
+  const tableBase = (tile & 1) * 0x1000;
+  const topTile = tile & 0xfe;
+  if (ty < 8) {
+    return { tileBase: tableBase + topTile * 16, tyInTile: ty };
+  }
+  return { tileBase: tableBase + (topTile + 1) * 16, tyInTile: ty - 8 };
 }
