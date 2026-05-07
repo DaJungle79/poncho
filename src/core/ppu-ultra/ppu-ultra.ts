@@ -6,8 +6,8 @@
  * dot, sets PPUSTATUS bit 7, and fires NMI when enabled). The pre-render
  * scanline (line 261) clears vblank + sprite-0 hit + sprite overflow.
  *
- * Memory map (PPU bus, 14-bit, NES-shaped — wider addressing arrives
- * with the native sprite/palette/nametable expansion):
+ * Memory map (PPU bus, 14-bit — wider addressing arrives with the
+ * native sprite/palette/nametable expansion):
  *   $0000-$1FFF  CHR (pattern tables) — fetched via the cartridge mapper
  *   $2000-$2FFF  Nametable VRAM (32×30 tile indices + 64-byte attribute
  *                table per nametable; single-screen $2000 for now)
@@ -102,13 +102,9 @@ export class PpuUltra {
   private vramIncrement = 1;
 
   // ----- $2000 PPUCTRL decoded -----
-  /** Bits exposed for tests + the NES-compat render path. */
   nmiEnabled = false;
-  /** 8×8 (false) vs 8×16 (true). Used by NES-compat sprite path. */
   spriteSize16 = false;
-  /** $0000 or $1000 — used by NES-compat BG render. */
   bgPatternBase = 0;
-  /** $0000 or $1000 — used by NES-compat sprite render. */
   spritePatternBase = 0;
   /** Base nametable (0..3). For now we render from $2000 only. */
   baseNametable = 0;
@@ -125,7 +121,6 @@ export class PpuUltra {
   private spriteOverflow = false;
 
   // ----- $2005 PPUSCROLL latched scroll values -----
-  /** X scroll, raw byte. Render multiplies in NES-compat mode. */
   private scrollX = 0;
   /** Y scroll, raw byte. */
   private scrollY = 0;
@@ -133,22 +128,8 @@ export class PpuUltra {
   /** NMI delivery callback. Wired by the composition to cpu.triggerNmi(). */
   private nmiCallback: (() => void) | null = null;
 
-  /**
-   * Cartridge CHR-ROM bytes (native PonchoROM mode). The mapper hands
-   * them in directly for now; banking lands when a test ROM needs more
-   * than the flat range.
-   */
+  /** CHR-ROM bytes. The mapper hands them in directly; banking lands when a test ROM needs more. */
   private chr: Uint8Array | null = null;
-
-  /**
-   * NES-compat CHR access. In compat mode the renderer goes through
-   * this callback (mapper.ppuRead) so banking-aware NES mappers
-   * (UxROM, MMC1, MMC3 …) keep working.
-   */
-  private chrReader: ((addr: number) => number) | null = null;
-
-  /** When true, the chip renders 8×8 2 bpp NES tiles at 4× pixel-block scale. */
-  private nesCompat = false;
 
   /** Universal-BG colour, cached so empty/no-CHR frames stay cheap. */
   private bgColor = 0xff000000;
@@ -179,14 +160,6 @@ export class PpuUltra {
     this.chr = chr;
   }
 
-  setChrReader(reader: ((addr: number) => number) | null): void {
-    this.chrReader = reader;
-  }
-
-  setNesCompat(enable: boolean): void {
-    this.nesCompat = enable;
-  }
-
   setNmiCallback(cb: (() => void) | null): void {
     this.nmiCallback = cb;
   }
@@ -214,8 +187,7 @@ export class PpuUltra {
     this.spriteOverflow = false;
     this.scrollX = 0;
     this.scrollY = 0;
-    // Note: nesCompat, chrReader, chr stay set across reset (they're
-    // wired by the composition's loadRom, not by PRG).
+    // Note: chr stays set across reset (wired by loadRom, not by PRG).
     this.refreshBgColor();
     this.framebuffer.data.fill(this.bgColor);
   }
@@ -302,11 +274,8 @@ export class PpuUltra {
    */
   oamDma(bus: { read(addr: number): number }, page: number): void {
     const base = (page & 0xff) << 8;
-    // NES-compat OAM is 256 bytes (4 bytes × 64 sprites). Native
-    // Poncho-NES OAM is 512 bytes. The compat sub-mode flag picks.
-    const len = this.nesCompat ? 256 : OAM_SIZE;
     let dst = this.oamAddr;
-    for (let i = 0; i < len; i++) {
+    for (let i = 0; i < OAM_SIZE; i++) {
       this.oamRam[dst] = bus.read(base + i) & 0xff;
       dst = (dst + 1) % OAM_SIZE;
     }
@@ -351,10 +320,6 @@ export class PpuUltra {
   renderFrame(): void {
     if (this.masterPalette.length === 0) {
       this.framebuffer.data.fill(this.bgColor);
-      return;
-    }
-    if (this.nesCompat) {
-      this.renderFrameNesCompat();
       return;
     }
     if (this.chr === null || this.chr.length === 0) {
@@ -452,133 +417,6 @@ export class PpuUltra {
           if (pv === 0) continue; // sprite-pixel 0 = transparent
           const idx = pal[SPRITE_PALETTE_OFFSET + subPalette * 4 + pv]! % masterLen;
           fb[dstRow + px] = master[idx]!;
-        }
-      }
-    }
-  }
-
-  /**
-   * NES-compat render path. Walks 8×8 2 bpp tiles via the cartridge
-   * mapper's `ppuRead`, applies the canonical 2C02 attribute decode,
-   * and writes each NES pixel as a 4×4 block into the 1024×960
-   * framebuffer. Sprite render walks the first 256 bytes of OAM as
-   * 64 × 4-byte NES sprite entries (byte 0 = y-1, byte 1 = tile,
-   * byte 2 = attr, byte 3 = x). Sprite size 8×16 not yet supported.
-   */
-  private renderFrameNesCompat(): void {
-    const fb = this.framebuffer.data;
-    const width = ULTRA_WIDTH;
-    const master = this.masterPalette;
-    const masterLen = master.length;
-    const pal = this.paletteRam;
-    const reader = this.chrReader;
-    const universalBg = master[(pal[0]! & 0x3f) % masterLen]!;
-    const sx = this.scrollX;
-    const sy = this.scrollY;
-
-    if (reader === null) {
-      fb.fill(universalBg);
-      return;
-    }
-
-    // ----- BG layer -----
-    if (this.showBackground) {
-      const bgBase = this.bgPatternBase;
-      // Line-by-line walk in NES coordinates (256 × 240). Each NES pixel
-      // becomes a 4×4 block in the Ultra framebuffer.
-      for (let nesY = 0; nesY < 240; nesY++) {
-        const srcY = (nesY + sy) % 240;
-        const tileRow = (srcY >> 3) & 31;
-        const tileSubY = srcY & 7;
-        let lastTileCol = -1;
-        let chrLo = 0;
-        let chrHi = 0;
-        let subPalette = 0;
-        for (let nesX = 0; nesX < 256; nesX++) {
-          const srcX = (nesX + sx) % 256;
-          const tileCol = (srcX >> 3) & 31;
-          if (tileCol !== lastTileCol) {
-            lastTileCol = tileCol;
-            const tileIdx = this.nametableRam[tileRow * 32 + tileCol]!;
-            const tileAddr = bgBase + (tileIdx << 4) + tileSubY;
-            chrLo = reader(tileAddr) & 0xff;
-            chrHi = reader(tileAddr + 8) & 0xff;
-            const attrByte = this.nametableRam[960 + (tileRow >> 2) * 8 + (tileCol >> 2)]!;
-            const attrShift = ((tileRow & 2) << 1) | (tileCol & 2);
-            subPalette = (attrByte >> attrShift) & 0x3;
-          }
-          const bit = 7 - (srcX & 7);
-          const pv = (((chrHi >> bit) & 1) << 1) | ((chrLo >> bit) & 1);
-          let color: number;
-          if (pv === 0) {
-            color = universalBg;
-          } else {
-            const palIdx = pal[subPalette * 4 + pv]! & 0x3f;
-            color = master[palIdx % masterLen]!;
-          }
-          // Splat into a 4×4 Ultra block.
-          const ultraX = nesX << 2;
-          const ultraY = nesY << 2;
-          for (let dy = 0; dy < 4; dy++) {
-            let dst = (ultraY + dy) * width + ultraX;
-            fb[dst++] = color;
-            fb[dst++] = color;
-            fb[dst++] = color;
-            fb[dst]   = color;
-          }
-        }
-      }
-    } else {
-      fb.fill(universalBg);
-    }
-
-    if (!this.showSprites) return;
-
-    // ----- Sprite layer (8×8 only for now) -----
-    const sprBase = this.spritePatternBase;
-    // Walk OAM in reverse so sprite 0 wins overlap (NES rule).
-    for (let s = 63; s >= 0; s--) {
-      const o = s * 4;
-      const yMinus1 = this.oamRam[o + 0]!;
-      const tileIdx = this.oamRam[o + 1]!;
-      const attr    = this.oamRam[o + 2]!;
-      const xPos    = this.oamRam[o + 3]!;
-      const y = yMinus1 + 1; // NES OAM Y is "Y - 1"
-
-      // Off-screen Y: NES PPU never draws sprites with Y >= 240.
-      if (y >= 240 || y === 0) continue;
-
-      const subPalette = attr & 0x3;
-      const flipH = (attr & 0x40) !== 0;
-      const flipV = (attr & 0x80) !== 0;
-      // (BG-priority bit 5 not honoured yet.)
-
-      const tileAddr = sprBase + (tileIdx << 4);
-
-      for (let py = 0; py < 8; py++) {
-        const ty = flipV ? (7 - py) : py;
-        const lo = reader(tileAddr + ty)     & 0xff;
-        const hi = reader(tileAddr + ty + 8) & 0xff;
-        const nesY = y + py;
-        if (nesY >= 240) break;
-        for (let px = 0; px < 8; px++) {
-          const tx = flipH ? (7 - px) : px;
-          const bit = 7 - tx;
-          const pv = (((hi >> bit) & 1) << 1) | ((lo >> bit) & 1);
-          if (pv === 0) continue;
-          const nesX = xPos + px;
-          if (nesX >= 256) break;
-          const palIdx = pal[SPRITE_PALETTE_OFFSET + subPalette * 4 + pv]! & 0x3f;
-          const color = master[palIdx % masterLen]!;
-          const ultraX = nesX << 2;
-          const ultraY = nesY << 2;
-          for (let dy = 0; dy < 4; dy++) {
-            let dst = (ultraY + dy) * width + ultraX;
-            fb[dst++] = color;
-            fb[dst++] = color;
-            fb[dst++] = color;
-            fb[dst]   = color;
-          }
         }
       }
     }

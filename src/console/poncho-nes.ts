@@ -1,17 +1,13 @@
 import { Apu } from '../core/apu/apu';
 import { PonchoCpuBus } from '../core/bus-poncho/cpu-bus';
-import { Cartridge } from '../core/cart/cartridge';
-import { parseInes } from '../core/cart/ines';
 import { PonchoCartridge } from '../core/cart-poncho/cartridge';
-import { isPonchoRom } from '../core/cart-poncho/header';
+import { isPonchoRom, PonchoRomError } from '../core/cart-poncho/header';
 import { Cpu } from '../core/cpu/cpu';
 import { Controller } from '../core/input/controller';
 import type { ControllerSource } from '../core/input/source';
-import { NES_MASTER_PALETTE_RGBA } from '../core/ppu-ultra/nes-master-palette';
 import { PpuUltra } from '../core/ppu-ultra/ppu-ultra';
 import type { FrameBuffer } from '../renderer/frame-buffer';
 import type { Console } from './console';
-import type { Cartridge as InesCartridge } from '../core/cart/cartridge';
 
 /**
  * Top-level Poncho-NES console. Composition of:
@@ -27,9 +23,9 @@ import type { Cartridge as InesCartridge } from '../core/cart/cartridge';
  * `true` at the dot that begins vblank — we latch that so `runFrame()`
  * can return at the right moment.
  *
- * Most of the chip is still a stub (PPU registers, mapper banking,
- * OAM, scrolling) — features come online with each new test ROM
- * generator. See `docs/poncho-rom.md` for the build order.
+ * Accepts only `.poncho` ROMs. iNES files are routed to the classic
+ * NES console by `detectConsole`. Features come online with each new
+ * test ROM generator — see `docs/poncho-rom.md` for the build order.
  */
 export class PonchoNes implements Console {
   readonly cpu: Cpu;
@@ -38,8 +34,7 @@ export class PonchoNes implements Console {
   readonly cpuBus: PonchoCpuBus;
   readonly controller1 = new Controller();
   readonly controller2 = new Controller();
-  /** Loaded cartridge — either a native PonchoROM or an iNES (compat-mode) cart. */
-  cartridge: PonchoCartridge | InesCartridge | null = null;
+  cartridge: PonchoCartridge | null = null;
 
   /** Set by the tick callback at vblank-start; read+cleared by runFrame. */
   private frameComplete = false;
@@ -74,28 +69,14 @@ export class PonchoNes implements Console {
   }
 
   loadRom(data: Uint8Array): void {
-    if (isPonchoRom(data)) {
-      // Native PonchoROM.
-      const cart = new PonchoCartridge(data);
-      this.cartridge = cart;
-      this.cpuBus.setCartridge(cart);
-      this.ppu.setNesCompat(false);
-      this.ppu.setMasterPalette(cart.palette);
-      this.ppu.setChr(cart.chr);
-      this.ppu.setChrReader(null);
-    } else {
-      // Treat as iNES → NES-compat sub-mode. The Ultra PPU walks 8×8
-      // 2bpp tiles via the cartridge mapper, paints each NES pixel as
-      // a 4×4 block. PRG runs unchanged.
-      const ines = parseInes(data);
-      const cart = new Cartridge(ines);
-      this.cartridge = cart;
-      this.cpuBus.setCartridge(cart);
-      this.ppu.setNesCompat(true);
-      this.ppu.setMasterPalette(NES_MASTER_PALETTE_RGBA);
-      this.ppu.setChr(null);
-      this.ppu.setChrReader((addr) => cart.mapper.ppuRead(addr & 0x3fff));
+    if (!isPonchoRom(data)) {
+      throw new PonchoRomError('Poncho-NES only loads .poncho ROMs');
     }
+    const cart = new PonchoCartridge(data);
+    this.cartridge = cart;
+    this.cpuBus.setCartridge(cart);
+    this.ppu.setMasterPalette(cart.palette);
+    this.ppu.setChr(cart.chr);
     this.reset();
   }
 
@@ -103,8 +84,6 @@ export class PonchoNes implements Console {
     this.cartridge = null;
     this.cpuBus.setCartridge(null);
     this.ppu.setChr(null);
-    this.ppu.setChrReader(null);
-    this.ppu.setNesCompat(false);
   }
 
   reset(): void {

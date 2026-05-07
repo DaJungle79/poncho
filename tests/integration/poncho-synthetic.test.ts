@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 import { parsePonchoRom } from '../../src/core/cart-poncho/header';
 import { detectConsole } from '../../src/console/detect';
 import { PonchoNes } from '../../src/console/poncho-nes';
-import { NES_PALETTE } from '../../src/core/ppu/palette';
 import { testRomPath } from '../rom-paths';
 
 /**
@@ -168,53 +167,6 @@ describe('synthetic PonchoROM: nmi-scroll', () => {
       expect(fb.data[24]).toBe(black);
       expect(fb.data[55]).toBe(black);
       expect(fb.data[56]).toBe(red);
-    },
-  );
-});
-
-describe('NES-compat: PonchoNes loading an iNES file', () => {
-  const path = testRomPath('poncho/compat-bg.nes');
-
-  it.skipIf(!existsSync(path))(
-    'Poncho-NES boots an iNES NROM ROM and the BG render emits master[1]',
-    () => {
-      const data = new Uint8Array(readFileSync(path));
-      // Direct instantiation — `detectConsole` still routes iNES to
-      // Classic NES by default; the user picks Poncho-NES via the UI.
-      const nes = new PonchoNes();
-      nes.loadRom(data);
-      const fb = nes.runFrame();
-
-      expect(fb.width).toBe(1024);
-      expect(fb.height).toBe(960);
-
-      // PRG installed paletteRam[1] = master index 1. Every BG pixel
-      // resolves through sub-palette 0 colour 1 → master[1].
-      const expected = NES_PALETTE[1]!;
-      expect(fb.data[0]).toBe(expected);
-      expect(fb.data[fb.data.length - 1]).toBe(expected);
-      // 4× pixel-block scale — nesX 0 covers ultraX 0..3.
-      expect(fb.data[3]).toBe(expected);
-      // Spot-check a pixel deep in the frame.
-      expect(fb.data[400 * 1024 + 500]).toBe(expected);
-    },
-  );
-
-  it.skipIf(!existsSync(path))(
-    'reset back to native PonchoROM mode is clean',
-    () => {
-      const inesData = new Uint8Array(readFileSync(path));
-      const nes = new PonchoNes();
-      nes.loadRom(inesData);
-      nes.runFrame();
-      // Now load a native PonchoROM — should switch out of compat mode.
-      const ponchoPath = testRomPath('poncho/solid-bg.poncho');
-      if (!existsSync(ponchoPath)) return;
-      const ponchoData = new Uint8Array(readFileSync(ponchoPath));
-      nes.loadRom(ponchoData);
-      const fb = nes.runFrame();
-      // solid-bg.poncho's universal BG = (0xE6, 0x3E, 0x32). ABGR pack = 0xff323ee6.
-      expect(fb.data[0]).toBe(0xff323ee6);
     },
   );
 });

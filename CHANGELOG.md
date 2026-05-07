@@ -7,6 +7,13 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+### Removed
+- **NES-compat sub-mode** from Poncho-NES. `PonchoNes.loadRom()` now only accepts `.poncho` ROMs and throws `PonchoRomError` on anything else. iNES files continue to route to the classic NES console via `detectConsole`.
+- `PpuUltra.setNesCompat()`, `PpuUltra.setChrReader()`, and the `renderFrameNesCompat()` render path (8×8 2 bpp tile upscaling). OAM DMA is always 512 bytes (native Poncho-NES size).
+- `BusCartridge` structural interface from `bus-poncho/cpu-bus.ts`; the bus is now typed directly to `PonchoCartridge`.
+- `nes-master-palette.ts` is no longer imported by `poncho-nes.ts` (still present for potential future use).
+- Compat integration test suite (`tests/integration/poncho-synthetic.test.ts` — `NES-compat` describe block) and the `tests/roms/poncho/compat-bg.nes` fixture.
+
 ## [0.2.0] — 2026-05-06
 
 ### Added

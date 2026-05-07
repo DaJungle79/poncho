@@ -1,9 +1,7 @@
 /**
- * Poncho-NES CPU bus. Mirrors the NES address map for now — the only
- * real difference today is which PPU it talks to. The map will diverge
- * once the PonchoMapper grows its native register set ($8000-$FFFF
- * functions per `docs/poncho-rom.md`) and OAM DMA copies 512 bytes
- * instead of 256.
+ * Poncho-NES CPU bus. The address map will diverge from the NES once
+ * the PonchoMapper grows its native register set ($8000-$FFFF, per
+ * `docs/poncho-rom.md`).
  *
  * Address map:
  *   $0000-$1FFF  2 KiB internal RAM (mirrored every $0800)
@@ -14,22 +12,13 @@
  */
 
 import type { Apu } from '../apu/apu';
-import type { Mapper } from '../cart/mapper';
+import type { PonchoCartridge } from '../cart-poncho/cartridge';
 import type { Controller } from '../input/controller';
 import type { PpuUltra } from '../ppu-ultra/ppu-ultra';
 
-/**
- * Any object the bus is willing to route cartridge accesses through.
- * Both the iNES wrapper (`Cartridge`) and `PonchoCartridge` satisfy
- * this — the bus only needs a `mapper`.
- */
-export interface BusCartridge {
-  readonly mapper: Mapper;
-}
-
 export class PonchoCpuBus {
   readonly ram = new Uint8Array(0x0800);
-  cartridge: BusCartridge | null = null;
+  cartridge: PonchoCartridge | null = null;
 
   private oamDmaCallback: () => void = () => {};
 
@@ -40,7 +29,7 @@ export class PonchoCpuBus {
     private readonly controller2: Controller,
   ) {}
 
-  setCartridge(cart: BusCartridge | null): void {
+  setCartridge(cart: PonchoCartridge | null): void {
     this.cartridge = cart;
   }
 

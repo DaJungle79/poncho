@@ -53,14 +53,11 @@ src/
     input/              Controller + ControllerSource interface + KeyboardSource.
     cart-poncho/        PonchoROM header parser + writer + cartridge + CRC32.
     mappers-poncho/     PonchoMapper. Stub: flat PRG mirroring, no banking yet.
-    bus-poncho/         Poncho-NES CPU bus. Accepts either a PonchoCartridge
-                        (native mode) or an iNES Cartridge (compat mode) via
-                        a structural BusCartridge interface.
+    bus-poncho/         Poncho-NES CPU bus. Accepts only PonchoCartridge.
     ppu-ultra/          2C02-Ultra. BG + sprites + scrolling + NMI; full
-                        $2000-$2007 register file; NES-compat sub-mode that
-                        renders 8×8 2bpp tiles at 4× pixel-block scale via
-                        the cartridge mapper. Sprite-0 hit / 8×16 sprites /
-                        MMC3 IRQ accuracy still pending.
+                        $2000-$2007 register file; native 32×32 8 bpp tile
+                        render. Sprite-0 hit / 8×16 sprites / MMC3 IRQ
+                        accuracy still pending.
 
   console/              Compositions: pick chips from core/, wire a virtual console.
     console.ts          Console + ConsoleFactory + ConsoleSpec interfaces.
