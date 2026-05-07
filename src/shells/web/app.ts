@@ -20,6 +20,7 @@ import { ConfigStore } from '../../config/store';
 import { Canvas2DRenderer } from '../../renderer/canvas-renderer';
 import { createScaler } from '../../renderer/scalers';
 import { createFilter } from '../../renderer/filters';
+import { NES_OVERSCAN } from '../../renderer/filters/overscan';
 import type { RenderPipeline } from '../../renderer/renderer';
 import { applyLogLevelsFromQuery, log } from '../../debug/logger';
 import { gameIcon, mountLucideIcons } from './ui/icons';
@@ -66,6 +67,7 @@ export class App {
   private readonly settingsPanel: SettingsPanel;
 
   // ----- Run-loop state ---------------------------------------------------
+  private activeConsoleId: string;
   private powered = false;
   private paused = false;
   private lastFrameTs = 0;
@@ -94,7 +96,8 @@ export class App {
     this.applyStatusBar(this.config.get().general.showStatusBar);
 
     // ----- Emulator + renderer ------------------------------------------
-    this.nes = createConsole(this.config.get().general.selectedConsoleId);
+    this.activeConsoleId = this.config.get().general.selectedConsoleId;
+    this.nes = createConsole(this.activeConsoleId);
     this.renderer = new Canvas2DRenderer(dom.canvas);
     this.renderer.setPipeline(this.buildPipeline());
 
@@ -329,8 +332,10 @@ export class App {
       return cfg;
     });
 
+    this.activeConsoleId = spec.id;
     this.nes = createConsole(spec.id);
     this.nes.setController(1, this.keyboard);
+    this.renderer.setPipeline(this.buildPipeline());
 
     this.sidebar.setTooltip('consoles', this.consoleLabelFromId(spec.id));
     this.sidebar.setTooltip('roms', `${spec.name} ROMs`);
@@ -367,8 +372,9 @@ export class App {
 
   private buildPipeline(): RenderPipeline {
     const cfg = this.config.get().video;
+    const cropFilters = (cfg.overscan && this.activeConsoleId === 'nes') ? [NES_OVERSCAN] : [];
     return {
-      preFilters: cfg.preFilters.map(createFilter),
+      preFilters: [...cropFilters, ...cfg.preFilters.map(createFilter)],
       scaler: createScaler(cfg.scaler),
       postFilters: cfg.postFilters.map(createFilter),
     };

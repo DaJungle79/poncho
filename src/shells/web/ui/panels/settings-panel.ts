@@ -24,6 +24,8 @@ export class SettingsPanel implements Panel {
 
   private readonly themeSelect: HTMLSelectElement;
   private readonly scaleSelect: HTMLSelectElement;
+  private readonly overscanCheckbox: HTMLInputElement;
+  private readonly overscanRow: HTMLElement;
   private readonly volumeRange: HTMLInputElement;
   private readonly muteCheckbox: HTMLInputElement;
   private readonly statusBarCheckbox: HTMLInputElement;
@@ -62,6 +64,10 @@ export class SettingsPanel implements Panel {
               <option value="nearest-4x">4×</option>
             </select>
           </label>
+          <label class="settings-row" data-overscan-row>
+            <span>Overscan crop</span>
+            <input type="checkbox" data-overscan />
+          </label>
         </section>
 
         <section class="settings-group">
@@ -88,6 +94,8 @@ export class SettingsPanel implements Panel {
 
     this.themeSelect = this.root.querySelector<HTMLSelectElement>('[data-theme]')!;
     this.scaleSelect = this.root.querySelector<HTMLSelectElement>('[data-scale]')!;
+    this.overscanCheckbox = this.root.querySelector<HTMLInputElement>('[data-overscan]')!;
+    this.overscanRow = this.root.querySelector<HTMLElement>('[data-overscan-row]')!;
     this.volumeRange = this.root.querySelector<HTMLInputElement>('[data-volume]')!;
     this.muteCheckbox = this.root.querySelector<HTMLInputElement>('[data-mute]')!;
     this.statusBarCheckbox = this.root.querySelector<HTMLInputElement>('[data-status-bar]')!;
@@ -103,6 +111,7 @@ export class SettingsPanel implements Panel {
     this.volumeRange.value = String(Math.round(cfg.audio.volume * 100));
     this.muteCheckbox.checked = cfg.audio.muted;
     this.statusBarCheckbox.checked = cfg.general.showStatusBar;
+    this.overscanCheckbox.checked = cfg.video.overscan;
     this.applyScalerAvailability(cfg.general.selectedConsoleId);
   }
 
@@ -130,6 +139,8 @@ export class SettingsPanel implements Panel {
       }));
       this.deps.onConfigChanged(cfg);
     }
+    // Overscan only applies to Classic NES — hide the row for other consoles.
+    this.overscanRow.hidden = consoleId !== 'nes';
   }
 
   private bindEvents(): void {
@@ -169,6 +180,14 @@ export class SettingsPanel implements Panel {
       const cfg = this.deps.config.update((c) => ({
         ...c,
         general: { ...c.general, showStatusBar: this.statusBarCheckbox.checked },
+      }));
+      this.deps.onConfigChanged(cfg);
+    });
+
+    this.overscanCheckbox.addEventListener('change', () => {
+      const cfg = this.deps.config.update((c) => ({
+        ...c,
+        video: { ...c.video, overscan: this.overscanCheckbox.checked },
       }));
       this.deps.onConfigChanged(cfg);
     });

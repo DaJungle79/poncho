@@ -10,6 +10,8 @@ export interface VideoConfig {
   scaler: ScalerId;
   preFilters: FilterId[];
   postFilters: FilterId[];
+  /** Crop ~8 px per side to hide the BG-LEFT clip area (classic NES only). */
+  overscan: boolean;
 }
 
 export interface AudioConfig {

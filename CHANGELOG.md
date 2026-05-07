@@ -7,6 +7,12 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+### Added
+- **Overscan crop** for Classic NES (`src/renderer/filters/overscan.ts`). `OverscanCropFilter` trims 8 px from each edge (256×240 → 240×224), hiding the BG-LEFT clip region that games expose during horizontal scrolling. Matches the TV-visible area on period-accurate CRT displays. Enabled by default; toggled via Settings → Video → "Overscan crop" (hidden for Poncho-NES, which outputs at its native 1024×960).
+
+### Changed
+- ROMs panel now filters the browser-storage and server lists by the active console's file extension (`.nes` for Classic NES, `.poncho` for Poncho-NES). Upload button and panel title also update on console switch.
+
 ### Removed
 - **NES-compat sub-mode** from Poncho-NES. `PonchoNes.loadRom()` now only accepts `.poncho` ROMs and throws `PonchoRomError` on anything else. iNES files continue to route to the classic NES console via `detectConsole`.
 - `PpuUltra.setNesCompat()`, `PpuUltra.setChrReader()`, and the `renderFrameNesCompat()` render path (8×8 2 bpp tile upscaling). OAM DMA is always 512 bytes (native Poncho-NES size).
