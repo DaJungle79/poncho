@@ -24,7 +24,7 @@ describe('synthetic PonchoROM: solid-bg', () => {
     expect(header.paletteCount).toBe(1);
     expect(header.prgSizeKb).toBe(1);
     expect(header.chrSizeKb).toBe(1);
-    expect(header.flags.nesCompat).toBe(false);
+    expect(header.flags.upscaledMode).toBe(false);
     expect(header.tvSystem).toBe('ntsc');
     expect(header.mapperId).toBe(1);
 

@@ -58,4 +58,32 @@ describe('PonchoCartridge + PonchoMapper', () => {
   it('mapper.irqPending is always false in the stub', () => {
     expect(buildCart().mapper.irqPending()).toBe(false);
   });
+
+  describe('CHR-RAM allocation', () => {
+    it('exposes a writable CHR-RAM buffer when chrRamKb > 0', () => {
+      const rom = assemblePonchoRom({
+        palette: makePalette([[0, 0, 0]]),
+        prg: new Uint8Array(1024),
+        chr: new Uint8Array(0),
+        chrRamKb: 8,
+      });
+      const cart = new PonchoCartridge(rom);
+      expect(cart.chrIsRam).toBe(true);
+      expect(cart.chr.length).toBe(8 * 1024);
+      // Writes via the mapper land in the buffer and read back.
+      cart.mapper.ppuWrite(0x0010, 0x42);
+      expect(cart.mapper.ppuRead(0x0010)).toBe(0x42);
+      expect(cart.chr[0x0010]).toBe(0x42);
+    });
+
+    it('CHR-ROM cartridges drop ppuWrite, leaving CHR bytes intact', () => {
+      const chr = new Uint8Array(1024);
+      chr[7] = 0x99;
+      const cart = buildCart({ chr });
+      expect(cart.chrIsRam).toBe(false);
+      cart.mapper.ppuWrite(0x0007, 0xaa);
+      expect(cart.mapper.ppuRead(0x0007)).toBe(0x99);
+    });
+
+  });
 });

@@ -8,8 +8,10 @@ This doc is intentionally informal and freely edited. Order inside each section 
 
 ## Near-term — likely next
 
-- **`scripts/poncho-convert.ts`** — iNES → PonchoROM CLI (CHR upscaled to 32×32 8 bpp via nearest-neighbour or AI upscaling, PRG copied verbatim). The primary path for getting classic NES games running on Poncho-NES. NES-compat was removed; conversion is now the only route.
-- **Poncho-NES → `working` status** — depends on the conversion CLI landing and a handful of native-format gaps closing: sprite-0 hit, 8×16 sprite mode, per-scanline timing for mid-frame palette/scroll changes, 4-screen / mirroring modes.
+- **PonchoMapper banking** — extend the mapper stub to the bank-switching modes the major iNES mappers need (UxROM PRG bank @ $8000, MMC1 control register, CNROM CHR bank, MMC3 PRG/CHR + IRQ, AxROM PRG + single-screen mirroring). Each one unlocks a chunk of the converter's coverage. Currently the converter rejects every mapper but NROM, so this is the gating item for boot-testing real games.
+- **OAM compat translation** — converted iNES PRG writes 4-byte sprites (NES OAM) and triggers 256-byte $4014 DMA, but `PpuUltra` expects 8-byte sprites + 512-byte DMA. Add a header flag ("expects NES OAM") + a translation path so converted sprites render. Also scale sprite x/y by 4× to match the 1024×960 framebuffer.
+- **Two nametables + mirroring** — `PpuUltra` currently reads from a single nametable at `$2000`. Wire horizontal / vertical mirroring (and the second nametable at `$2400/$2800/$2C00`) so smooth-scrolling games tile correctly past the screen edge.
+- **Poncho-NES → `working` status** — depends on the items above plus a handful of native-format gaps closing: sprite-0 hit, 8×16 sprite mode, per-scanline timing for mid-frame palette/scroll changes, 4-screen mirroring.
 - **Sub-cycle bus alignment** — interleave CPU bus accesses with PPU dots and APU frame-counter clocking. Single rework that flips ~24 blargg sub-tests in `ppu_vbl_nmi`, `sprite_hit_tests`, `sprite_overflow`, `apu_test`. See [`DEFERRED.md`](DEFERRED.md).
 - **Save states** — serialize Nes state to a `Uint8Array`; restore from same. Per-slot persistence in browser storage.
 - **Battery-backed SRAM** — persist `prg-ram` for cartridges with non-volatile save (Zelda, Final Fantasy). Keyed by ROM SHA-1, stored alongside the library.

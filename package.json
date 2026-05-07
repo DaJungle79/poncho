@@ -33,6 +33,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "screenshot": "tsx scripts/render-screenshot.ts \"roms/Contra (USA).nes\" docs/screenshot.png 240 2",
+    "poncho:convert": "tsx scripts/poncho-convert.ts",
     "gen:poncho:solid-bg": "tsx scripts/gen-poncho-rom/solid-bg.ts",
     "gen:poncho:palette-write": "tsx scripts/gen-poncho-rom/palette-write.ts",
     "gen:poncho:solid-tile": "tsx scripts/gen-poncho-rom/solid-tile.ts",

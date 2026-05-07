@@ -42,7 +42,7 @@ describe('assemblePonchoRom — round trip with parser', () => {
       tvSystem: 'both',
       region: 0x05,
       sourceInesCrc32: 0xcafebabe,
-      flags: { nesCompat: true, trailerPresent: false },
+      flags: { upscaledMode: true, trailerPresent: false },
     });
 
     const layout = parsePonchoRom(rom);
@@ -57,7 +57,7 @@ describe('assemblePonchoRom — round trip with parser', () => {
     expect(layout.header.tvSystem).toBe('both');
     expect(layout.header.region).toBe(0x05);
     expect(layout.header.sourceInesCrc32).toBe(0xcafebabe);
-    expect(layout.header.flags).toEqual({ nesCompat: true, trailerPresent: false });
+    expect(layout.header.flags).toEqual({ upscaledMode: true, trailerPresent: false });
 
     expect(rom.subarray(layout.paletteOffset, layout.paletteOffset + layout.paletteByteLength))
       .toEqual(palette);
@@ -94,7 +94,7 @@ describe('assemblePonchoRom — round trip with parser', () => {
     expect(header.prgRamKb).toBe(0);
     expect(header.chrRamKb).toBe(0);
     expect(header.region).toBe(0);
-    expect(header.flags.nesCompat).toBe(false);
+    expect(header.flags.upscaledMode).toBe(false);
     expect(header.flags.trailerPresent).toBe(false);
     expect(header.title).toBe('');
   });

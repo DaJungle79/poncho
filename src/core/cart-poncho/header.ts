@@ -27,10 +27,56 @@ export class PonchoRomError extends Error {
 export type TvSystem = 'ntsc' | 'pal' | 'both';
 
 export interface PonchoFlags {
-  /** Bit 0: NES-compat sub-mode. The PRG-ROM is original iNES code. */
-  nesCompat: boolean;
+  /**
+   * Bit 0: upscaled-mode cartridge. CHR is 8×8 2 bpp NES-format tiles
+   * (PpuUltra paints each NES pixel as a 4×4 block to fill the 1024×960
+   * framebuffer); OAM is 64 × 4-byte NES-shape sprites at 8-bit coords
+   * (PpuUltra scales x/y ×4 at render); $4014 DMA copies 256 bytes.
+   * When clear, the cartridge uses Poncho-native conventions (32×32 8 bpp
+   * tiles, 8-byte sprites at 16-bit coords, 512-byte $4014 DMA).
+   *
+   * Both modes are first-class native capabilities of PpuUltra. The flag
+   * is set on output of the iNES → PonchoROM converter; hand-crafted or
+   * art-replaced ROMs leave it clear.
+   */
+  upscaledMode: boolean;
   /** Bit 1: trailer block follows the CHR-ROM. */
   trailerPresent: boolean;
+}
+
+/**
+ * Decoded `mapperSubmode` field. Encodes which PonchoMapper banking
+ * variant the cartridge expects and the boot-time nametable mirroring.
+ *
+ *   bits 0-7  bankingVariant — selects PonchoMapper internal mode:
+ *               0 = flat (NROM-style)
+ *               1 = MMC1-style serial control register
+ *               2 = UxROM-style 16 KB PRG bank @ $8000-$BFFF
+ *               3 = CNROM-style CHR bank
+ *               4 = MMC3-style PRG/CHR + scanline IRQ
+ *               7 = AxROM-style PRG bank + single-screen mirror
+ *  bits 8-9   bootMirroring  — initial nametable mirroring mode:
+ *               0 = horizontal, 1 = vertical, 2 = four-screen, 3 = single-screen
+ *               (mappers that expose a runtime mirroring control override
+ *                this once they're configured by PRG)
+ *  bits 10-15 reserved (must be 0).
+ */
+export type BankingVariant = 0 | 1 | 2 | 3 | 4 | 7;
+export type BootMirroring = 0 | 1 | 2 | 3;
+
+export interface MapperSubmode {
+  bankingVariant: BankingVariant;
+  bootMirroring: BootMirroring;
+}
+
+export function decodeMapperSubmode(raw: number): MapperSubmode {
+  const bankingVariant = (raw & 0xff) as BankingVariant;
+  const bootMirroring = ((raw >> 8) & 0x03) as BootMirroring;
+  return { bankingVariant, bootMirroring };
+}
+
+export function encodeMapperSubmode(m: MapperSubmode): number {
+  return ((m.bootMirroring & 0x03) << 8) | (m.bankingVariant & 0xff);
 }
 
 export interface PonchoHeader {
@@ -111,7 +157,7 @@ export function parseHeader(data: Uint8Array): PonchoHeader {
 
   const flagsByte = view.getUint8(0x05);
   const flags: PonchoFlags = {
-    nesCompat:      (flagsByte & 0b0000_0001) !== 0,
+    upscaledMode:   (flagsByte & 0b0000_0001) !== 0,
     trailerPresent: (flagsByte & 0b0000_0010) !== 0,
   };
 

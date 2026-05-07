@@ -124,7 +124,7 @@ export function assemblePonchoRom(parts: AssembleParts): Uint8Array {
   view.setUint8(0x04, PONCHO_VERSION);
   view.setUint8(
     0x05,
-    (parts.flags?.nesCompat ? 0b01 : 0) | (trailerPresent ? 0b10 : 0),
+    (parts.flags?.upscaledMode ? 0b01 : 0) | (trailerPresent ? 0b10 : 0),
   );
   view.setUint16(0x06, prgSizeKb, true);
   view.setUint32(0x08, chrSizeKb, true);
