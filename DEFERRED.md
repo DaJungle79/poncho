@@ -153,13 +153,17 @@ test flips to "PASSED".
 (it reaches the post-test halt at $E60F) but doesn't use the standard
 $6000/$6004 protocol — it draws results to the PPU framebuffer instead.
 
-**Why deferred.** Verifying pass/fail requires rendering + framebuffer
-inspection (or OCR). Will become tractable once Phase 4 (PPU rendering)
-lands.
+**Why deferred.** PPU rendering is now working (shipped in 0.2.0), so
+the original blocker is gone. What remains is wiring up framebuffer
+text inspection in the test harness: run the ROM until halt, blit the
+256×240 framebuffer, map rendered pixel colours back to NES palette
+indices, and read the on-screen text.
 
-**How to verify a fix.** Once rendering works, capture the framebuffer
-after the ROM halts and check the displayed text reads "Passed" or
-spell out the byte at a fixed pixel range.
+**How to verify a fix.** Extend `tests/integration/blargg.ts` (or add a
+sibling helper) with a `runUntilHalt` + framebuffer-OCR path. Capture
+the canvas after the CPU halts and assert the first line reads "Passed".
+The test file already has `.skipIf(!existsSync(path))` so adding the ROM
+to `tests/roms/` will automatically un-skip it.
 
 ## APU — DMC DMA does not stall the CPU
 

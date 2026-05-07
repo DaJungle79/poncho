@@ -8,10 +8,15 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
-- **Overscan crop** for Classic NES (`src/renderer/filters/overscan.ts`). `OverscanCropFilter` trims 8 px from each edge (256×240 → 240×224), hiding the BG-LEFT clip region that games expose during horizontal scrolling. Matches the TV-visible area on period-accurate CRT displays. Enabled by default; toggled via Settings → Video → "Overscan crop" (hidden for Poncho-NES, which outputs at its native 1024×960).
+- **Overscan crop** for Classic NES (`src/renderer/filters/overscan.ts`). `OverscanCropFilter` trims a configurable number of pixels from each edge, hiding the BG-LEFT clip region that games expose during horizontal scrolling. Default values: Left 8, Top/Bottom/Right 0 — crops only the left-side strip that games expect CRT overscan to conceal. Per-side pixel values are editable in Settings → Video (the four inputs appear when the checkbox is ticked, collapse when it is not). Hidden entirely for Poncho-NES, which outputs at its native 1024×960.
 
 ### Changed
-- ROMs panel now filters the browser-storage and server lists by the active console's file extension (`.nes` for Classic NES, `.poncho` for Poncho-NES). Upload button and panel title also update on console switch.
+- ROMs panel filters browser-storage and server lists by the active console's file extension (`.nes` for Classic NES, `.poncho` for Poncho-NES). Upload button label and panel title update when switching consoles.
+
+### Fixed
+- Overscan inputs were visible on panel open even when overscan was disabled. Root cause: `display: grid` on `.overscan-inputs` overrode the `hidden` attribute. Fixed with `.overscan-inputs[hidden] { display: none; }`.
+- Users with configs stored from earlier sessions received stale overscan values (8/8/8/8 from the first commit of this feature). Config version bumped 1 → 2; v1 → v2 migration resets overscan to the correct defaults.
+- White/black border appeared around the viewport when overscan was active. Root cause: hardcoded `aspect-ratio: 16 / 15` on `#screen` was sized against the bare 256×240 output; when the canvas was cropped to a different ratio (e.g. 248×240), the CSS forced a wider display than the pixel content and the gap showed as a border. Removed the hardcoded ratio — the canvas's intrinsic dimensions are already correct.
 
 ### Removed
 - **NES-compat sub-mode** from Poncho-NES. `PonchoNes.loadRom()` now only accepts `.poncho` ROMs and throws `PonchoRomError` on anything else. iNES files continue to route to the classic NES console via `detectConsole`.
