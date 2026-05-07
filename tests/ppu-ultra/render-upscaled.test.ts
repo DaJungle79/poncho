@@ -91,3 +91,125 @@ describe('PpuUltra — upscaled-CHR render path', () => {
     expect(fb[fb.length - 1]).toBe(expected);
   });
 });
+
+describe('PpuUltra — upscaled-OAM sprite render', () => {
+  it('paints a NES sprite as a 32×32 block at NES coords × 4', () => {
+    const ppu = new PpuUltra();
+    ppu.setMasterPalette(rgbaPalette([0x00, 0x00, 0x00], [0xff, 0x00, 0x00]));
+    ppu.setMirroring('vertical');
+    ppu.setUpscaledMode(true);
+
+    // Tile 0 at PPU $0000: every pixel value = 1 (plane 0 = 0xFF, plane 1 = 0).
+    const chr = new Uint8Array(8192);
+    for (let i = 0; i < 8; i++) chr[i] = 0xff;
+    ppu.setChrReader((addr) => chr[addr & 0x1fff]!);
+
+    // Sprite sub-palette 1 entry 1 = master[1] (red).
+    ppu.cpuWrite(0x2006, 0x3f);
+    ppu.cpuWrite(0x2006, 0x15);
+    ppu.cpuWrite(0x2007, 0x01);
+
+    // Place a sprite at NES (8, 16) tile 0, sub-palette 1.
+    ppu.cpuWrite(0x2003, 0x00); // OAMADDR = 0
+    ppu.cpuWrite(0x2004, 16);   // y
+    ppu.cpuWrite(0x2004, 0);    // tile
+    ppu.cpuWrite(0x2004, 0x01); // attr
+    ppu.cpuWrite(0x2004, 8);    // x
+
+    ppu.renderFrame();
+
+    const fb = ppu.framebuffer.data;
+    const px = (y: number, x: number) => fb[y * 1024 + x];
+    // NES (8, 16) → Poncho (32, 64). Sprite spans Poncho (32..63, 64..95).
+    expect(px(64, 32)).toBe(RED);
+    expect(px(95, 63)).toBe(RED);
+    expect(px(80, 48)).toBe(RED);
+    // Just outside.
+    expect(px(63, 48)).toBe(BLACK);
+    expect(px(80, 31)).toBe(BLACK);
+    expect(px(80, 64)).toBe(BLACK);
+  });
+
+  it('honours sprite flip-H attribute bit', () => {
+    const ppu = new PpuUltra();
+    ppu.setMasterPalette(rgbaPalette([0x00, 0x00, 0x00], [0xff, 0x00, 0x00]));
+    ppu.setUpscaledMode(true);
+
+    // Tile 0: only the leftmost column (col 0) has pixel value = 1.
+    const chr = new Uint8Array(8192);
+    for (let i = 0; i < 8; i++) chr[i] = 0x80;
+    ppu.setChrReader((addr) => chr[addr & 0x1fff]!);
+
+    // Sprite sub-palette 0 entry 1 → red.
+    ppu.cpuWrite(0x2006, 0x3f);
+    ppu.cpuWrite(0x2006, 0x11);
+    ppu.cpuWrite(0x2007, 0x01);
+
+    // Sprite at NES (0, 0), tile 0, attr = 0x40 (flip-H).
+    ppu.cpuWrite(0x2003, 0x00);
+    ppu.cpuWrite(0x2004, 0);
+    ppu.cpuWrite(0x2004, 0);
+    ppu.cpuWrite(0x2004, 0x40);
+    ppu.cpuWrite(0x2004, 0);
+
+    ppu.renderFrame();
+    const fb = ppu.framebuffer.data;
+    // Without flip: NES col 0 = lit → Poncho cols 0..3 red. With flip-H,
+    // NES col 7 should be lit instead → Poncho cols 28..31 red.
+    expect(fb[28]).toBe(RED);
+    expect(fb[31]).toBe(RED);
+    expect(fb[0]).toBe(BLACK);
+    expect(fb[27]).toBe(BLACK);
+  });
+
+  it('skips off-screen sprites (y >= 0xEF)', () => {
+    const ppu = new PpuUltra();
+    ppu.setMasterPalette(rgbaPalette([0x00, 0x00, 0x00], [0xff, 0x00, 0x00]));
+    ppu.setUpscaledMode(true);
+
+    const chr = new Uint8Array(8192);
+    for (let i = 0; i < 8; i++) chr[i] = 0xff;
+    ppu.setChrReader((addr) => chr[addr & 0x1fff]!);
+
+    ppu.cpuWrite(0x2006, 0x3f);
+    ppu.cpuWrite(0x2006, 0x11);
+    ppu.cpuWrite(0x2007, 0x01);
+
+    // Sprite with y = 0xF0 (hidden).
+    ppu.cpuWrite(0x2003, 0);
+    ppu.cpuWrite(0x2004, 0xf0);
+    ppu.cpuWrite(0x2004, 0);
+    ppu.cpuWrite(0x2004, 0);
+    ppu.cpuWrite(0x2004, 100);
+
+    ppu.renderFrame();
+    const fb = ppu.framebuffer.data;
+    // Whole framebuffer should be background (no sprite anywhere).
+    let red = 0;
+    for (let i = 0; i < fb.length; i++) if (fb[i] === RED) red++;
+    expect(red).toBe(0);
+  });
+});
+
+describe('PpuUltra — $4014 OAM DMA size in upscaled mode', () => {
+  it('reads 256 bytes when upscaled mode is on', () => {
+    const ppu = new PpuUltra();
+    ppu.setUpscaledMode(true);
+    let calls = 0;
+    const bus = {
+      read(_addr: number): number { calls++; return 0; },
+    };
+    ppu.oamDma(bus, 0x02);
+    expect(calls).toBe(256);
+  });
+
+  it('reads 512 bytes in native mode', () => {
+    const ppu = new PpuUltra();
+    let calls = 0;
+    const bus = {
+      read(_addr: number): number { calls++; return 0; },
+    };
+    ppu.oamDma(bus, 0x02);
+    expect(calls).toBe(512);
+  });
+});

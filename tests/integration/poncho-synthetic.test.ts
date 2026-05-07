@@ -208,6 +208,66 @@ describe('synthetic PonchoROM: single-sprite', () => {
   );
 });
 
+describe('synthetic PonchoROM: upscaled-sprite', () => {
+  const path = testRomPath('poncho/upscaled-sprite.poncho');
+
+  it.skipIf(!existsSync(path))(
+    'declares upscaled mode + 8 KB CHR-RAM',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const { header } = parsePonchoRom(data);
+      expect(header.flags.upscaledMode).toBe(true);
+      expect(header.chrRamKb).toBe(8);
+    },
+  );
+
+  it.skipIf(!existsSync(path))(
+    'PRG places one NES sprite at (8, 16) tile 0; render shows 32×32 red block at Poncho (32, 64)',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const factory = detectConsole(data);
+      const console = factory!.create() as PonchoNes;
+      console.loadRom(data);
+
+      console.runFrame();
+      const fb = console.runFrame();
+
+      const red = 0xff0000ff;
+      const black = 0xff000000;
+      const px = (y: number, x: number) => fb.data[y * 1024 + x];
+
+      // Inside the sprite — Poncho (32..63, 64..95).
+      expect(px(64, 32)).toBe(red);
+      expect(px(64, 63)).toBe(red);
+      expect(px(95, 32)).toBe(red);
+      expect(px(95, 63)).toBe(red);
+      expect(px(80, 48)).toBe(red); // mid-sprite
+      // Outside the sprite — should be BG (black).
+      expect(px(63, 48)).toBe(black); // one row above
+      expect(px(96, 48)).toBe(black); // one row below
+      expect(px(80, 31)).toBe(black); // one col left
+      expect(px(80, 64)).toBe(black); // one col right
+    },
+  );
+
+  it.skipIf(!existsSync(path))(
+    'OAM contains the NES-shape sprite at offsets [0..3]',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const factory = detectConsole(data);
+      const console = factory!.create() as PonchoNes;
+      console.loadRom(data);
+      console.runFrame();
+
+      const oam = console.ppu.oamRam;
+      expect(oam[0]).toBe(16);    // y
+      expect(oam[1]).toBe(0);     // tile
+      expect(oam[2]).toBe(0x01);  // attr (sub-palette 1)
+      expect(oam[3]).toBe(8);     // x
+    },
+  );
+});
+
 describe('synthetic PonchoROM: upscaled-chr', () => {
   const path = testRomPath('poncho/upscaled-chr.poncho');
 

@@ -325,8 +325,11 @@ export class PpuUltra {
    */
   oamDma(bus: { read(addr: number): number }, page: number): void {
     const base = (page & 0xff) << 8;
+    // NES-shape OAM is 256 bytes (4 bytes × 64 sprites); native Poncho-NES
+    // OAM is 512 bytes (8 bytes × 64). The cartridge's mode flag picks.
+    const len = this.upscaledMode ? 256 : OAM_SIZE;
     let dst = this.oamAddr;
-    for (let i = 0; i < OAM_SIZE; i++) {
+    for (let i = 0; i < len; i++) {
       this.oamRam[dst] = bus.read(base + i) & 0xff;
       dst = (dst + 1) % OAM_SIZE;
     }
@@ -599,6 +602,89 @@ export class PpuUltra {
           color = master[idx]!;
         }
         fb[dst++] = color;
+      }
+    }
+
+    this.renderSpritesUpscaled();
+  }
+
+  /**
+   * Upscaled-mode sprite render. Walks 64 × 4-byte NES OAM entries
+   * (`[y, tile, attr, x]`) and paints each 8×8 NES sprite as a 32×32
+   * block in the 1024×960 framebuffer. Position is scaled ×4 from NES
+   * to Poncho px.
+   *
+   *   attr bit 0-1 — sub-palette (0..3, into the 16-byte sprite palette)
+   *   attr bit 5   — BG priority (NOT yet honoured; lands in Phase 6)
+   *   attr bit 6   — flip-H
+   *   attr bit 7   — flip-V
+   *
+   * Sprite size: 8×8 only for v1; 8×16 mode (PPUCTRL bit 5) lands in
+   * Phase 6 along with sprite-0 hit.
+   *
+   * Draw order matches the existing native sprite path (index 0 first;
+   * later indices overwrite earlier). Real NES priority is the inverse;
+   * we'll fix both paths together when sprite priority lands.
+   */
+  private renderSpritesUpscaled(): void {
+    if (!this.showSprites) return;
+    const reader = this.chrReader;
+    if (reader === null) return;
+
+    const fb = this.framebuffer.data;
+    const width = ULTRA_WIDTH;
+    const pal = this.paletteRam;
+    const master = this.masterPalette;
+    const masterLen = master.length;
+    const patternBase = this.spritePatternBase;
+
+    for (let s = 0; s < 64; s++) {
+      const o = s * 4;
+      const yNes  = this.oamRam[o + 0]!;
+      const tile  = this.oamRam[o + 1]!;
+      const attr  = this.oamRam[o + 2]!;
+      const xNes  = this.oamRam[o + 3]!;
+
+      // NES convention: y values 0xEF..0xFF mark hidden sprites
+      // (visible scanlines stop at 239).
+      if (yNes >= 0xef) continue;
+
+      const subPalette = attr & 0x3;
+      const flipH = (attr & 0x40) !== 0;
+      const flipV = (attr & 0x80) !== 0;
+      const tileBase = patternBase + tile * 16;
+
+      const dstX0 = xNes * 4;
+      const dstY0 = yNes * 4;
+
+      for (let py = 0; py < 8; py++) {
+        const ty = flipV ? (7 - py) : py;
+        const plane0 = reader(tileBase + ty) & 0xff;
+        const plane1 = reader(tileBase + 8 + ty) & 0xff;
+        const blockY0 = dstY0 + py * 4;
+        if (blockY0 >= ULTRA_HEIGHT) break;
+        const blockYRows = Math.min(4, ULTRA_HEIGHT - blockY0);
+
+        for (let px = 0; px < 8; px++) {
+          const tx = flipH ? (7 - px) : px;
+          const bit = 7 - tx;
+          const pv = ((plane0 >> bit) & 1) | (((plane1 >> bit) & 1) << 1);
+          if (pv === 0) continue; // sprite-pixel 0 = transparent
+
+          const idx = pal[SPRITE_PALETTE_OFFSET + subPalette * 4 + pv]! % masterLen;
+          const color = master[idx]!;
+
+          const blockX0 = dstX0 + px * 4;
+          if (blockX0 >= ULTRA_WIDTH) break;
+          const blockXCols = Math.min(4, ULTRA_WIDTH - blockX0);
+
+          for (let dy = 0; dy < blockYRows; dy++) {
+            const row = (blockY0 + dy) * width + blockX0;
+            for (let dx = 0; dx < blockXCols; dx++) {
+              fb[row + dx] = color;
+            }
+          }
+        }
       }
     }
   }
