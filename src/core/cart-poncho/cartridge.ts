@@ -22,7 +22,7 @@
  *                                       both).
  */
 
-import { parsePonchoRom, type PonchoRomLayout } from './header';
+import { decodeMapperSubmode, parsePonchoRom, type PonchoRomLayout } from './header';
 import { PonchoMapper } from '../mappers-poncho/poncho-mapper';
 import type { Mapper } from '../cart/mapper';
 
@@ -63,6 +63,11 @@ export class PonchoCartridge {
       this.chrIsRam = false;
     }
 
-    this.mapper = new PonchoMapper(this.prg, this.chr, { writable: this.chrIsRam });
+    const submode = decodeMapperSubmode(this.layout.header.mapperSubmode);
+    this.mapper = new PonchoMapper(this.prg, this.chr, {
+      writable: this.chrIsRam,
+      bankingVariant: submode.bankingVariant,
+      bootMirroring: submode.bootMirroring,
+    });
   }
 }

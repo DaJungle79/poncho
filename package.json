@@ -39,7 +39,8 @@
     "gen:poncho:solid-tile": "tsx scripts/gen-poncho-rom/solid-tile.ts",
     "gen:poncho:single-sprite": "tsx scripts/gen-poncho-rom/single-sprite.ts",
     "gen:poncho:nmi-scroll": "tsx scripts/gen-poncho-rom/nmi-scroll.ts",
-    "gen:poncho:compat-bg": "tsx scripts/gen-poncho-rom/compat-bg.ts"
+    "gen:poncho:compat-bg": "tsx scripts/gen-poncho-rom/compat-bg.ts",
+    "gen:poncho:uxrom-bankswitch": "tsx scripts/gen-poncho-rom/uxrom-bankswitch.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-import { parsePonchoRom } from '../../src/core/cart-poncho/header';
+import { decodeMapperSubmode, parsePonchoRom } from '../../src/core/cart-poncho/header';
 import { detectConsole } from '../../src/console/detect';
 import { PonchoNes } from '../../src/console/poncho-nes';
 import { testRomPath } from '../rom-paths';
@@ -204,6 +204,57 @@ describe('synthetic PonchoROM: single-sprite', () => {
       let red_count = 0;
       for (let i = 0; i < fb.data.length; i++) if (fb.data[i] === red) red_count++;
       expect(red_count).toBe(1024);
+    },
+  );
+});
+
+describe('synthetic PonchoROM: uxrom-bankswitch', () => {
+  const path = testRomPath('poncho/uxrom-bankswitch.poncho');
+
+  it.skipIf(!existsSync(path))(
+    'declares UxROM-style banking variant + vertical boot mirroring',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const { header } = parsePonchoRom(data);
+      expect(header.flags.upscaledMode).toBe(true);
+      expect(decodeMapperSubmode(header.mapperSubmode)).toEqual({
+        bankingVariant: 2,
+        bootMirroring: 1,
+      });
+      expect(header.prgSizeKb).toBe(64);
+    },
+  );
+
+  it.skipIf(!existsSync(path))(
+    'PRG bank-selects 0/1/2 in turn; reads at $8000 see distinct sentinels',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const factory = detectConsole(data);
+      expect(factory).not.toBeNull();
+      const console = factory!.create();
+      expect(console).toBeInstanceOf(PonchoNes);
+      console.loadRom(data);
+
+      // The PRG executes from the fixed last bank ($C000), bank-selects
+      // 0/1/2 in sequence and stores each bank's sentinel byte to zero
+      // page $00/$01/$02. One frame is plenty for those ~25 cycles.
+      console.runFrame();
+
+      const ram = (console as PonchoNes).cpuBus.ram;
+      expect(ram[0x00]).toBe(0xa0);
+      expect(ram[0x01]).toBe(0xa1);
+      expect(ram[0x02]).toBe(0xa2);
+    },
+  );
+
+  it.skipIf(!existsSync(path))(
+    'mapper.mirroring() reflects the encoded boot mirroring (vertical)',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const factory = detectConsole(data);
+      const console = factory!.create() as PonchoNes;
+      console.loadRom(data);
+      expect(console.cartridge!.mapper.mirroring()).toBe('vertical');
     },
   );
 });
