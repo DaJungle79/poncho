@@ -24,8 +24,13 @@ export class SettingsPanel implements Panel {
 
   private readonly themeSelect: HTMLSelectElement;
   private readonly scaleSelect: HTMLSelectElement;
+  private readonly overscanSection: HTMLElement;
   private readonly overscanCheckbox: HTMLInputElement;
-  private readonly overscanRow: HTMLElement;
+  private readonly overscanInputs: HTMLElement;
+  private readonly overscanTop: HTMLInputElement;
+  private readonly overscanBottom: HTMLInputElement;
+  private readonly overscanLeft: HTMLInputElement;
+  private readonly overscanRight: HTMLInputElement;
   private readonly volumeRange: HTMLInputElement;
   private readonly muteCheckbox: HTMLInputElement;
   private readonly statusBarCheckbox: HTMLInputElement;
@@ -54,7 +59,7 @@ export class SettingsPanel implements Panel {
           </label>
         </section>
 
-        <section class="settings-group">
+        <section class="settings-group" data-overscan-section>
           <h3><i data-lucide="monitor"></i><span>Video</span></h3>
           <label class="settings-row">
             <span>Scale</span>
@@ -64,10 +69,28 @@ export class SettingsPanel implements Panel {
               <option value="nearest-4x">4×</option>
             </select>
           </label>
-          <label class="settings-row" data-overscan-row>
+          <label class="settings-row">
             <span>Overscan crop</span>
             <input type="checkbox" data-overscan />
           </label>
+          <div class="overscan-inputs" data-overscan-inputs>
+            <label class="overscan-field">
+              <span>Top</span>
+              <input type="number" min="0" max="64" data-overscan-top />
+            </label>
+            <label class="overscan-field">
+              <span>Bottom</span>
+              <input type="number" min="0" max="64" data-overscan-bottom />
+            </label>
+            <label class="overscan-field">
+              <span>Left</span>
+              <input type="number" min="0" max="64" data-overscan-left />
+            </label>
+            <label class="overscan-field">
+              <span>Right</span>
+              <input type="number" min="0" max="64" data-overscan-right />
+            </label>
+          </div>
         </section>
 
         <section class="settings-group">
@@ -94,8 +117,13 @@ export class SettingsPanel implements Panel {
 
     this.themeSelect = this.root.querySelector<HTMLSelectElement>('[data-theme]')!;
     this.scaleSelect = this.root.querySelector<HTMLSelectElement>('[data-scale]')!;
+    this.overscanSection = this.root.querySelector<HTMLElement>('[data-overscan-section]')!;
     this.overscanCheckbox = this.root.querySelector<HTMLInputElement>('[data-overscan]')!;
-    this.overscanRow = this.root.querySelector<HTMLElement>('[data-overscan-row]')!;
+    this.overscanInputs = this.root.querySelector<HTMLElement>('[data-overscan-inputs]')!;
+    this.overscanTop = this.root.querySelector<HTMLInputElement>('[data-overscan-top]')!;
+    this.overscanBottom = this.root.querySelector<HTMLInputElement>('[data-overscan-bottom]')!;
+    this.overscanLeft = this.root.querySelector<HTMLInputElement>('[data-overscan-left]')!;
+    this.overscanRight = this.root.querySelector<HTMLInputElement>('[data-overscan-right]')!;
     this.volumeRange = this.root.querySelector<HTMLInputElement>('[data-volume]')!;
     this.muteCheckbox = this.root.querySelector<HTMLInputElement>('[data-mute]')!;
     this.statusBarCheckbox = this.root.querySelector<HTMLInputElement>('[data-status-bar]')!;
@@ -111,7 +139,7 @@ export class SettingsPanel implements Panel {
     this.volumeRange.value = String(Math.round(cfg.audio.volume * 100));
     this.muteCheckbox.checked = cfg.audio.muted;
     this.statusBarCheckbox.checked = cfg.general.showStatusBar;
-    this.overscanCheckbox.checked = cfg.video.overscan;
+    this.syncOverscanUI(cfg);
     this.applyScalerAvailability(cfg.general.selectedConsoleId);
   }
 
@@ -124,6 +152,16 @@ export class SettingsPanel implements Panel {
    */
   setConsoleId(consoleId: string): void {
     this.applyScalerAvailability(consoleId);
+  }
+
+  private syncOverscanUI(cfg: Config): void {
+    const ov = cfg.video.overscan;
+    this.overscanCheckbox.checked = ov.enabled;
+    this.overscanTop.value = String(ov.top);
+    this.overscanBottom.value = String(ov.bottom);
+    this.overscanLeft.value = String(ov.left);
+    this.overscanRight.value = String(ov.right);
+    this.overscanInputs.hidden = !ov.enabled;
   }
 
   private applyScalerAvailability(consoleId: string): void {
@@ -139,8 +177,26 @@ export class SettingsPanel implements Panel {
       }));
       this.deps.onConfigChanged(cfg);
     }
-    // Overscan only applies to Classic NES — hide the row for other consoles.
-    this.overscanRow.hidden = consoleId !== 'nes';
+    // Overscan only applies to Classic NES — hide the section for other consoles.
+    this.overscanSection.hidden = consoleId !== 'nes';
+  }
+
+  private updateOverscan(): void {
+    const cfg = this.deps.config.update((c) => ({
+      ...c,
+      video: {
+        ...c.video,
+        overscan: {
+          enabled: this.overscanCheckbox.checked,
+          top: clampOverscan(this.overscanTop.value),
+          bottom: clampOverscan(this.overscanBottom.value),
+          left: clampOverscan(this.overscanLeft.value),
+          right: clampOverscan(this.overscanRight.value),
+        },
+      },
+    }));
+    this.overscanInputs.hidden = !this.overscanCheckbox.checked;
+    this.deps.onConfigChanged(cfg);
   }
 
   private bindEvents(): void {
@@ -184,16 +240,19 @@ export class SettingsPanel implements Panel {
       this.deps.onConfigChanged(cfg);
     });
 
-    this.overscanCheckbox.addEventListener('change', () => {
-      const cfg = this.deps.config.update((c) => ({
-        ...c,
-        video: { ...c.video, overscan: this.overscanCheckbox.checked },
-      }));
-      this.deps.onConfigChanged(cfg);
-    });
+    this.overscanCheckbox.addEventListener('change', () => this.updateOverscan());
+    this.overscanTop.addEventListener('change', () => this.updateOverscan());
+    this.overscanBottom.addEventListener('change', () => this.updateOverscan());
+    this.overscanLeft.addEventListener('change', () => this.updateOverscan());
+    this.overscanRight.addEventListener('change', () => this.updateOverscan());
 
     this.root
       .querySelector<HTMLButtonElement>('[data-controls]')!
       .addEventListener('click', () => this.deps.onOpenControls());
   }
+}
+
+function clampOverscan(raw: string): number {
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? Math.max(0, Math.min(64, n)) : 0;
 }

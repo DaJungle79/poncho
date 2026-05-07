@@ -20,7 +20,7 @@ export const DEFAULT_CONFIG: Config = {
     scaler: 'nearest-2x',
     preFilters: [],
     postFilters: [],
-    overscan: true,
+    overscan: { enabled: true, top: 8, bottom: 8, left: 8, right: 8 },
   },
   audio: {
     volume: 0.7,

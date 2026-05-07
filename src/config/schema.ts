@@ -6,12 +6,20 @@ export const CONFIG_VERSION = 1;
 
 export type KeyBindings = Record<string, NesButton>;
 
+export interface OverscanConfig {
+  enabled: boolean;
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
 export interface VideoConfig {
   scaler: ScalerId;
   preFilters: FilterId[];
   postFilters: FilterId[];
-  /** Crop ~8 px per side to hide the BG-LEFT clip area (classic NES only). */
-  overscan: boolean;
+  /** Crop the BG-LEFT clip area (classic NES only). */
+  overscan: OverscanConfig;
 }
 
 export interface AudioConfig {

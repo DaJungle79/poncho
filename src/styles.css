@@ -615,6 +615,35 @@ select:focus-visible {
 .settings-link .chev { margin-left: auto; }
 .settings-link svg { width: 16px; height: 16px; }
 
+.overscan-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 8px 0 4px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.overscan-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.overscan-field input[type="number"] {
+  width: 52px;
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 4px 6px;
+  text-align: right;
+  -moz-appearance: textfield;
+}
+.overscan-field input[type="number"]::-webkit-inner-spin-button,
+.overscan-field input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
+
 /* ----- Controls panel (L3) ----------------------------------------------- */
 
 .controls-rows {

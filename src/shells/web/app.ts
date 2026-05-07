@@ -20,7 +20,7 @@ import { ConfigStore } from '../../config/store';
 import { Canvas2DRenderer } from '../../renderer/canvas-renderer';
 import { createScaler } from '../../renderer/scalers';
 import { createFilter } from '../../renderer/filters';
-import { NES_OVERSCAN } from '../../renderer/filters/overscan';
+import { OverscanCropFilter } from '../../renderer/filters/overscan';
 import type { RenderPipeline } from '../../renderer/renderer';
 import { applyLogLevelsFromQuery, log } from '../../debug/logger';
 import { gameIcon, mountLucideIcons } from './ui/icons';
@@ -372,7 +372,11 @@ export class App {
 
   private buildPipeline(): RenderPipeline {
     const cfg = this.config.get().video;
-    const cropFilters = (cfg.overscan && this.activeConsoleId === 'nes') ? [NES_OVERSCAN] : [];
+    const { overscan } = cfg;
+    const cropFilters =
+      (overscan.enabled && this.activeConsoleId === 'nes')
+        ? [new OverscanCropFilter(overscan.top, overscan.bottom, overscan.left, overscan.right)]
+        : [];
     return {
       preFilters: [...cropFilters, ...cfg.preFilters.map(createFilter)],
       scaler: createScaler(cfg.scaler),

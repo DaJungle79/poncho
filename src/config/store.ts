@@ -51,9 +51,16 @@ export class ConfigStore {
  * When the schema bumps, branch on `parsed.version` here.
  */
 function migrate(parsed: Partial<Config>): Config {
+  const rawVideo = parsed.video ?? {};
+  // Guard: overscan was briefly a boolean — coerce to the object shape.
+  const rawOverscan = (rawVideo as Record<string, unknown>)['overscan'];
+  const overscan = (rawOverscan !== null && typeof rawOverscan === 'object')
+    ? { ...DEFAULT_CONFIG.video.overscan, ...(rawOverscan as object) }
+    : DEFAULT_CONFIG.video.overscan;
+
   const merged: Config = {
     version: CONFIG_VERSION,
-    video: { ...DEFAULT_CONFIG.video, ...(parsed.video ?? {}) },
+    video: { ...DEFAULT_CONFIG.video, ...rawVideo, overscan },
     audio: { ...DEFAULT_CONFIG.audio, ...(parsed.audio ?? {}) },
     input: {
       player1Keys: { ...DEFAULT_CONFIG.input.player1Keys, ...(parsed.input?.player1Keys ?? {}) },
