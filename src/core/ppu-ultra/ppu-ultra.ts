@@ -143,6 +143,16 @@ export class PpuUltra {
   /** Y scroll, raw byte. */
   private scrollY = 0;
 
+  /**
+   * 1-byte read buffer for $2007 PPUDATA. Reads of $0000-$3EFF return
+   * the previous buffered byte and refill from the addressed location;
+   * reads of $3F00-$3FFF (palette) return the addressed byte directly
+   * but still refill the buffer from the underlying nametable mirror
+   * at addr-$1000. Matches NES hardware behaviour — a handful of games
+   * read CHR/nametable via $2007 (e.g. Final Fantasy collision detect).
+   */
+  private vramReadBuffer = 0;
+
   /** NMI delivery callback. Wired by the composition to cpu.triggerNmi(). */
   private nmiCallback: (() => void) | null = null;
 
@@ -247,6 +257,7 @@ export class PpuUltra {
     this.sprite0HitScanline = -1;
     this.scrollX = 0;
     this.scrollY = 0;
+    this.vramReadBuffer = 0;
     // Note: chr stays set across reset (wired by loadRom, not by PRG).
     this.refreshBgColor();
     this.framebuffer.data.fill(this.bgColor);
@@ -266,7 +277,41 @@ export class PpuUltra {
       return v;
     }
     if (reg === 0x2004) return this.oamRam[this.oamAddr]!;
+    if (reg === 0x2007) return this.vramRead();
     return 0;
+  }
+
+  /**
+   * $2007 read. Buffered for non-palette addresses (returns the previous
+   * byte, refills from the new location); direct for palette
+   * ($3F00-$3FFF), with the buffer refilling from the nametable mirror
+   * underneath. Auto-increments vramAddr per PPUCTRL `vramIncrement`.
+   */
+  private vramRead(): number {
+    const addr = this.vramAddr & 0x3fff;
+    let result: number;
+    if (addr >= PALETTE_RAM_BASE) {
+      result = this.paletteRam[mirrorPaletteAddr(addr)]!;
+      // Refill buffer from the nametable mirror at addr - $1000.
+      const mirrorAddr = (addr - 0x1000) & 0x3fff;
+      this.vramReadBuffer = this.readVramByte(mirrorAddr);
+    } else {
+      result = this.vramReadBuffer;
+      this.vramReadBuffer = this.readVramByte(addr);
+    }
+    this.vramAddr = (this.vramAddr + this.vramIncrement) & 0x7fff;
+    return result;
+  }
+
+  /** Read a byte from the PPU bus address space (CHR or nametable). */
+  private readVramByte(addr: number): number {
+    if (addr < 0x2000) return this.chrReader ? (this.chrReader(addr) & 0xff) : 0;
+    if (addr < 0x3f00) {
+      const logicalNT = (addr >> 10) & 0x3;
+      const physicalNT = resolvePhysicalNT(logicalNT, this.nametableMirroring);
+      return this.nametableRam[physicalNT * NAMETABLE_SIZE + (addr & 0x03ff)]!;
+    }
+    return this.paletteRam[mirrorPaletteAddr(addr)]!;
   }
 
   cpuWrite(addr: number, value: number): void {
@@ -704,7 +749,10 @@ export class PpuUltra {
     const sprite16 = this.spriteSize16;
     const spriteHeight = sprite16 ? 16 : 8;
 
-    for (let s = 0; s < 64; s++) {
+    // NES sprite priority within the sprite layer: lower-index sprites
+    // are drawn IN FRONT of higher-index ones. Iterate 63→0 so later
+    // sprite-paint operations from low indices overwrite high.
+    for (let s = 63; s >= 0; s--) {
       const o = s * 4;
       const yNes  = this.oamRam[o + 0]!;
       const tile  = this.oamRam[o + 1]!;
@@ -719,8 +767,10 @@ export class PpuUltra {
       const flipH = (attr & 0x40) !== 0;
       const flipV = (attr & 0x80) !== 0;
 
+      // NES OAM y stores the sprite's top scanline MINUS 1 (hardware
+      // sprite-eval delay). Real screen y starts at yNes + 1.
       const dstX0 = xNes * 4;
-      const dstY0 = yNes * 4;
+      const dstY0 = (yNes + 1) * 4;
 
       for (let py = 0; py < spriteHeight; py++) {
         const ty = flipV ? (spriteHeight - 1 - py) : py;
@@ -759,7 +809,12 @@ export class PpuUltra {
 
   private vramWrite(addr: number, value: number): void {
     if (addr >= PALETTE_RAM_BASE) {
-      this.paletteRam[addr & 0x1f] = value;
+      // NES palette mirroring: writes to $3F10/$3F14/$3F18/$3F1C also
+      // land at $3F00/$3F04/$3F08/$3F0C (and vice versa). The renderer
+      // pulls the universal-BG colour from offset 0; without this mirror
+      // a PRG that writes $3F10 (relying on hardware mirroring) leaves
+      // our offset-0 stale and the universal-BG goes wrong.
+      this.paletteRam[mirrorPaletteAddr(addr)] = value;
       this.refreshBgColor();
       return;
     }
@@ -867,7 +922,9 @@ export class PpuUltra {
     const spriteH = this.spriteSize16 ? 16 : 8;
 
     for (let py = 0; py < spriteH; py++) {
-      const ny = yNes + py;
+      // OAM y stores sprite-top minus 1 (hardware delay); real screen
+      // y is yNes + 1 + py.
+      const ny = yNes + 1 + py;
       if (ny >= 240) break;
       for (let px = 0; px < 8; px++) {
         const nx = xNes + px;
@@ -917,6 +974,17 @@ export function resolvePhysicalNT(logicalNT: number, mirroring: Mirroring): 0 | 
     case 'single-high': return 1;
     case 'four-screen': return (lnt & 1) as 0 | 1;        // TODO: full 4-screen via cart VRAM
   }
+}
+
+/**
+ * Map a 14-bit PPU palette address into a 32-byte palette-RAM offset,
+ * applying the NES hardware palette-mirror rule: addresses ending in
+ * `$10/$14/$18/$1C` collapse to `$00/$04/$08/$0C`.
+ */
+function mirrorPaletteAddr(addr: number): number {
+  let idx = addr & 0x1f;
+  if ((idx & 0x13) === 0x10) idx &= ~0x10;
+  return idx;
 }
 
 /**

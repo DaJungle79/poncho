@@ -120,14 +120,16 @@ describe('PpuUltra — upscaled-OAM sprite render', () => {
 
     const fb = ppu.framebuffer.data;
     const px = (y: number, x: number) => fb[y * 1024 + x];
-    // NES (8, 16) → Poncho (32, 64). Sprite spans Poncho (32..63, 64..95).
-    expect(px(64, 32)).toBe(RED);
-    expect(px(95, 63)).toBe(RED);
+    // OAM y stores top-minus-1 (NES hardware delay). OAM (8, 16) places
+    // the sprite at NES (8, 17). 4× scale → Poncho (32..63, 68..99).
+    expect(px(68, 32)).toBe(RED);
+    expect(px(99, 63)).toBe(RED);
     expect(px(80, 48)).toBe(RED);
     // Just outside.
-    expect(px(63, 48)).toBe(BLACK);
+    expect(px(67, 48)).toBe(BLACK); // one Poncho row above sprite top
     expect(px(80, 31)).toBe(BLACK);
     expect(px(80, 64)).toBe(BLACK);
+    expect(px(100, 48)).toBe(BLACK); // one Poncho row below sprite bottom
   });
 
   it('honours sprite flip-H attribute bit', () => {
@@ -154,12 +156,15 @@ describe('PpuUltra — upscaled-OAM sprite render', () => {
 
     ppu.renderFrame();
     const fb = ppu.framebuffer.data;
-    // Without flip: NES col 0 = lit → Poncho cols 0..3 red. With flip-H,
-    // NES col 7 should be lit instead → Poncho cols 28..31 red.
-    expect(fb[28]).toBe(RED);
-    expect(fb[31]).toBe(RED);
-    expect(fb[0]).toBe(BLACK);
-    expect(fb[27]).toBe(BLACK);
+    // OAM y=0 places sprite at NES y=1 → Poncho y=4. Use row 4 instead
+    // of row 0 to stay within the sprite. Without flip: NES col 0 =
+    // lit → Poncho cols 0..3 red. With flip-H, NES col 7 should be lit
+    // instead → Poncho cols 28..31 red.
+    const r4 = (x: number) => fb[4 * 1024 + x];
+    expect(r4(28)).toBe(RED);
+    expect(r4(31)).toBe(RED);
+    expect(r4(0)).toBe(BLACK);
+    expect(r4(27)).toBe(BLACK);
   });
 
   it('skips off-screen sprites (y >= 0xEF)', () => {
@@ -220,14 +225,15 @@ describe('PpuUltra — 8×16 sprite mode', () => {
 
     const fb = ppu.framebuffer.data;
     const px = (y: number, x: number) => fb[y * 1024 + x];
-    // 8×16 sprite at NES (8, 16) → Poncho (32..63, 64..127).
-    expect(px(64, 32)).toBe(RED);    // top
-    expect(px(95, 32)).toBe(RED);    // last row of top tile
-    expect(px(96, 32)).toBe(RED);    // first row of bottom tile
-    expect(px(127, 32)).toBe(RED);   // bottom
+    // OAM y=16 places sprite at NES y=17. 8×16 sprite at NES (8, 17) →
+    // Poncho (32..63, 68..131).
+    expect(px(68, 32)).toBe(RED);     // top
+    expect(px(99, 32)).toBe(RED);     // last row of top tile
+    expect(px(100, 32)).toBe(RED);    // first row of bottom tile
+    expect(px(131, 32)).toBe(RED);    // bottom
     // Just outside.
-    expect(px(63, 32)).toBe(BLACK);
-    expect(px(128, 32)).toBe(BLACK);
+    expect(px(67, 32)).toBe(BLACK);
+    expect(px(132, 32)).toBe(BLACK);
   });
 
   it('uses pattern table $1000 when tile LSB is set in 8×16 mode', () => {
@@ -251,8 +257,9 @@ describe('PpuUltra — 8×16 sprite mode', () => {
     ppu.cpuWrite(0x2004, 0x01); ppu.cpuWrite(0x2004, 0); ppu.cpuWrite(0x2004, 8);
 
     ppu.renderFrame();
-    expect(ppu.framebuffer.data[64 * 1024 + 32]).toBe(RED);
-    expect(ppu.framebuffer.data[127 * 1024 + 32]).toBe(RED);
+    // OAM y=16 → NES y=17 → Poncho rows 68..131.
+    expect(ppu.framebuffer.data[68 * 1024 + 32]).toBe(RED);
+    expect(ppu.framebuffer.data[131 * 1024 + 32]).toBe(RED);
   });
 });
 

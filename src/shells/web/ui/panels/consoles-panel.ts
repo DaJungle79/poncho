@@ -40,7 +40,7 @@ export class ConsolesPanel implements Panel {
         <p class="panel-hint">
           Pick which virtual console boots ROMs.
           Classic NES is the original hardware, faithful to spec.
-          Poncho-NES is the 4× successor — runs <code>.nes</code> at 4× scale and native <code>.poncho</code> ROMs.
+          Poncho-NES is the 4× upscale successor — runs native <code>.poncho</code> ROMs.
         </p>
         <ul class="console-list" data-list></ul>
       </div>

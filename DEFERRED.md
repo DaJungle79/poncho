@@ -3,6 +3,31 @@
 Things known to be imperfect or incomplete. Each entry should explain *what*
 is wrong, *why* it isn't fixed yet, and *how* we'd verify a fix.
 
+## Poncho-NES intentional divergences from Classic NES
+
+These aren't bugs — they're deliberate design choices that make Poncho-NES an
+*enhanced* console rather than a strict NES clone. Documented here so a future
+"why does Poncho show extra sprites?" question has an answer.
+
+- **8-sprites-per-scanline limit not enforced.** Real 2C02 PPU drops sprites past
+  the 8th on any given scanline (the famous NES sprite flicker). PpuUltra renders
+  all 64 sprites unconditionally — the upscaled framebuffer has the bandwidth
+  and the user gets cleaner visuals. For sprite-heavy games (Contra, Battletoads
+  boss scenes) Poncho-NES shows ~5–20% more sprite pixels than NES, which is the
+  intended "more sprites" enhancement of the Ultra PPU.
+
+- **Sprite-overflow flag** is still set when 9+ sprites land on a scanline (the
+  `PPUSTATUS` bit 5 behaviour real games occasionally check), so games that
+  specifically depend on the overflow flag aren't surprised — they just don't
+  see flicker.
+
+To restore strict NES sprite-limit behaviour (e.g. for a faithful regression
+test), `PpuUltra.renderSpritesUpscaled()` would need a per-scanline budget
+counter that drops sprite-0..n once N reaches 8. Trivial to add, deliberately
+not added.
+
+---
+
 ## Sub-cycle bus alignment — single root cause for ~24 test-ROM failures
 
 A handful of separate-looking failures all share one architectural gap:

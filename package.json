@@ -1,6 +1,6 @@
 {
   "name": "poncho",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A handcrafted Nintendo Entertainment System emulator written in TypeScript, runs in the browser.",
   "private": true,
   "type": "module",

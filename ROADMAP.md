@@ -6,16 +6,20 @@ This doc is intentionally informal and freely edited. Order inside each section 
 
 ---
 
-## Near-term — likely next
+## Near-term — v0.4.0 plan
 
-- **PonchoMapper banking** — extend the mapper stub to the bank-switching modes the major iNES mappers need (UxROM PRG bank @ $8000, MMC1 control register, CNROM CHR bank, MMC3 PRG/CHR + IRQ, AxROM PRG + single-screen mirroring). Each one unlocks a chunk of the converter's coverage. Currently the converter rejects every mapper but NROM, so this is the gating item for boot-testing real games.
-- **OAM compat translation** — converted iNES PRG writes 4-byte sprites (NES OAM) and triggers 256-byte $4014 DMA, but `PpuUltra` expects 8-byte sprites + 512-byte DMA. Add a header flag ("expects NES OAM") + a translation path so converted sprites render. Also scale sprite x/y by 4× to match the 1024×960 framebuffer.
-- **Two nametables + mirroring** — `PpuUltra` currently reads from a single nametable at `$2000`. Wire horizontal / vertical mirroring (and the second nametable at `$2400/$2800/$2C00`) so smooth-scrolling games tile correctly past the screen edge.
-- **Poncho-NES → `working` status** — depends on the items above plus a handful of native-format gaps closing: sprite-0 hit, 8×16 sprite mode, per-scanline timing for mid-frame palette/scroll changes, 4-screen mirroring.
-- **Sub-cycle bus alignment** — interleave CPU bus accesses with PPU dots and APU frame-counter clocking. Single rework that flips ~24 blargg sub-tests in `ppu_vbl_nmi`, `sprite_hit_tests`, `sprite_overflow`, `apu_test`. See [`DEFERRED.md`](DEFERRED.md).
+The next release focuses on validating the v0.3 runtime + converter against a wider library of games and locking results into a regression suite. Detailed phases live in [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md):
+
+- **Game-by-game validation** — Donkey Kong, SMB, Mega Man 2, Castlevania, Battletoads, SMB3 (MMC3 IRQ stress), Final Fantasy / Zelda (battery save). Each game ships with a frame-N screenshot baseline.
+- **Headless regression harness** — `npm run test:games` converts each curated iNES → `.poncho`, runs N frames, PNG-diffs against baseline. CI-friendly.
+- **AI-driven CHR upscaling** — pre-pass in the converter that replaces 4×4 nearest-neighbour CHR with model output. Format flag flips to `upscaledMode=0` (CHR pre-baked, no runtime upscale). For CHR-RAM games, capture states via offline emulation and bake them as Poncho-CHR banks.
+
+## Other work — not on the v0.4 critical path
+
 - **Save states** — serialize Nes state to a `Uint8Array`; restore from same. Per-slot persistence in browser storage.
 - **Battery-backed SRAM** — persist `prg-ram` for cartridges with non-volatile save (Zelda, Final Fantasy). Keyed by ROM SHA-1, stored alongside the library.
 - **Pause-on-blur** — auto-pause when the tab loses focus; resume on focus. Optional via Settings.
+- **Sub-cycle bus alignment** — interleave CPU bus accesses with PPU dots and APU frame-counter clocking. Single rework that flips ~24 blargg sub-tests in `ppu_vbl_nmi`, `sprite_hit_tests`, `sprite_overflow`, `apu_test`. See [`DEFERRED.md`](DEFERRED.md).
 
 ## Mid-term — themes worth a focused pass
 

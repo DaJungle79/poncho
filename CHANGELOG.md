@@ -7,86 +7,90 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
-### Added
-- **iNES → upscaled-mode PonchoROM converter v2 (Phase 9 of v0.3.0)** — first deliverable on Track B (the converter).
-  - New module [`src/convert/ines-to-poncho.ts`](src/convert/ines-to-poncho.ts) replaces the v0.2 NROM-only converter. Now supports all 6 PonchoMapper banking variants (NROM, MMC1, UxROM, CNROM, MMC3, AxROM). PRG copied verbatim. CHR-ROM embedded verbatim; CHR-RAM games get `chrRamKb=8` and the runtime allocates the buffer. iNES mirroring (horizontal / vertical / four-screen) maps into the boot-mirroring sub-field of `mapper_submode`. `flags.upscaledMode = 1` so PpuUltra renders 8×8 2 bpp tiles as 4×4 blocks and walks NES OAM. Source iNES CRC32 recorded in the header for traceability.
-  - Lives under `src/` (not `scripts/lib/`) so the web shell can import it client-side. `scripts/lib/ines-to-poncho.ts` is now a thin re-export so the CLI shares one source of truth.
-  - `bankingVariantName(variant)` exported for the CLI + UI.
-  - 18 new tests (round-trip, mapper-id mapping for all 6 variants, mirroring mapping, CHR-ROM vs CHR-RAM, error paths for unsupported mappers / trainers, end-to-end load+runFrame for NROM and CHR-RAM-UxROM).
-  - **Validated against three real games**: `Contra (USA).nes` → UxROM + CHR-RAM (128 KB PRG); `Double Dragon II.nes` → MMC3 + CHR-ROM (128 KB PRG + 128 KB CHR); `Mighty Bomb Jack.nes` → CNROM + CHR-ROM (32 KB PRG + 32 KB CHR). All produce well-formed `.poncho` files that load through `detectConsole` + `PonchoNes.loadRom`.
-- **"Convert .nes" button in the ROMs panel** (web shell) — second deliverable for Phase 9.
-  - Visible only when Poncho-NES is the active console (sits next to "Upload .poncho").
-  - Opens a file picker accepting `.nes`. On selection: client-side conversion via `convertInesToPoncho`, the resulting `.poncho` is added to the IndexedDB-backed library under the original basename + `.poncho`, the browser-storage list refreshes. Conversion errors (unsupported mapper, trainer, etc.) surface in the status bar; the cancellation path doesn't error.
-  - The new `<div class="rom-actions">` row in [`src/shells/web/ui/panels/roms-panel.ts`](src/shells/web/ui/panels/roms-panel.ts) lays Upload + Convert side-by-side; the Convert button is hidden via the `hidden` attribute when the active console isn't Poncho-NES (CSS leaves Upload occupying the row alone).
-  - Total: 366 passed, 1 skipped (+5 new converter tests; UI is verified manually).
-- **Additional PonchoMapper banking variants (Phase 8 of v0.3.0)** — closes out the runtime track of v0.3.0.
-  - **MMC1-style** (variant 1): 5-bit serial register protocol via shift register fed from any `$8000-$FFFF` write. Five-write commit to control / CHR0 / CHR1 / PRG-bank registers selected by address bits 13–14. PRG modes 0/1 (32 KB), 2 (fixed first / switch second), 3 (switch first / fixed last). CHR mode 0 (single 8 KB) / 1 (two 4 KB). Runtime mirroring control (single-low / single-high / vertical / horizontal). Bit-7 reset path forces PRG mode 3.
-  - **CNROM-style** (variant 3): PRG fixed (16 KB mirrored or 32 KB straight); any write to `$8000-$FFFF` selects an 8 KB CHR bank. Modulo-by-bank-count so non-power-of-two CHR sizes work.
-  - **MMC3-style** (variant 4): per-1 KB CHR banking with two layout modes; PRG/CHR mode swap; scanline-rate IRQ counter clocked by filtered PPU A12 0→1 edges (10-dot low filter via `tickPpu`). All eight register addresses honoured (`$8000` even/odd, `$A000` mirror / RAM-protect, `$C000` latch / reload, `$E000` IRQ disable+ack / enable). Four-screen mirroring locked from `$A000` writes when boot mirroring was four-screen.
-  - **AxROM-style** (variant 7): 32 KB switchable PRG bank covering the entire `$8000-$FFFF` window; bit 4 of the bank-select toggles single-low vs single-high mirroring per write.
-  - PonchoMapper restructured as a thin delegating wrapper. Per-variant implementations live in `src/core/mappers-poncho/variants/{nrom,uxrom,mmc1,cnrom,mmc3,axrom}.ts`, each implementing `Mapper` directly with their own state. Selected at construction from `mapper_submode` low byte.
-  - Synthetic test ROM [`mmc1-bankswitch.poncho`](tests/roms/poncho/mmc1-bankswitch.poncho): 64 KB / 4 PRG banks, sentinel bytes per bank. PRG in fixed bank 3 drives the MMC1 serial protocol (5-bit writes to `$E000`) to select banks 0/1/2 in turn, captures each sentinel into zero-page. End-to-end integration test asserts `ram[0..2] = [0xB0, 0xB1, 0xB2]`.
-  - 12 new tests (10 unit covering each variant's distinguishing features — CNROM CHR-bank, AxROM PRG+mirror, MMC1 serial protocol + mirror control + reset, MMC3 PRG mode swap + mirroring + IRQ disable; 2 integration). Total: 361 passed, 1 skipped. Track A of v0.3.0 (runtime) is now complete.
-- **Per-scanline BG rendering (Phase 7 of v0.3.0)** —
-  - PpuUltra's BG render moved out of the eager vblank-entry pass and into a per-scanline event in `tick()`. New private method `renderScanlineUpscaled(nesY)` paints the 4 Poncho rows for one NES scanline using the chip's CURRENT state; called at dot 340 of each visible scanline. State changes mid-frame (palette, scroll, `showBg`) take effect on the very next rendered scanline.
-  - Eager `renderFrameUpscaled()` becomes a thin loop over `renderScanlineUpscaled` + sprites; it's still used by direct `renderFrame()` callers (unit tests). At vblank-entry, tick() calls only `renderSpritesUpscaled` (BG is already done) for upscaled-mode carts; native-mode keeps the old eager path.
-  - `refreshBgColor` no longer fills the framebuffer (it just updates the cached `bgColor`). The previous side-effect would have wiped scanlines that had already been rendered when PRG writes a palette mid-frame — exactly the case Phase 7 needs to make work for status-bar splits.
-  - Synthetic ROM [`scanline-split.poncho`](tests/roms/poncho/scanline-split.poncho) generated by [`scripts/gen-poncho-rom/scanline-split.ts`](scripts/gen-poncho-rom/scanline-split.ts): BG fully opaque (tile-pixel-1 = master[paletteRam[1]]), sprite-0 at NES (0, 32). PRG polls `$2002` bit 6 in a tight loop and writes `$3F01 = 2` (green) on hit. After 2 frames, the visible region shows red above the hit scanline and green below.
-  - 5 new tests (3 unit covering mid-frame palette write, untouched-row preservation, and showBg=false fill; 2 integration covering header + the red-top/green-bottom split). 3 existing tests updated to call `renderFrame()` explicitly (the eager-fill side effect they relied on is gone). Total: 349 passed, 1 skipped.
-- **Sprite-0 hit + 8×16 sprite mode (Phase 6 of v0.3.0)** —
-  - **Sprite-0 hit** detection in upscaled mode. PpuUltra walks sprite-0 against the BG layer at the pre-render scanline (using the just-set-up state from PRG's vblank writes), records the first NES scanline where an opaque sprite-0 pixel collides with an opaque BG pixel, and sets PPUSTATUS bit 6 (and `ppu.sprite0Hit`) at that scanline's dot 1 during the upcoming visible region. Hardware quirks honoured: hidden sprites (`y >= 0xEF`), the `x = 255` no-fire rule, and "both BG + sprites enabled" gating. Pixel-exact dot precision still requires Phase 7's scanline-grained render refactor.
-  - **8×16 sprite mode** (PPUCTRL bit 5). The OAM tile-index encodes both the pattern table (LSB) and the tile pair (bits 1–7); top tile = `tile & 0xFE`, bottom tile = top + 1. PPUCTRL bit 3 is ignored in 8×16 mode. Renders as a 32×64 Poncho block (4× the 8×16 NES sprite). Mode applies to both visual rendering and sprite-0 hit detection.
-  - Two synthetic test ROMs: [`sprite0-hit.poncho`](tests/roms/poncho/sprite0-hit.poncho) (PRG places sprite-0 at NES (50, 100) overlapping fully-opaque BG; verifies `sprite0Hit` is set after one full frame and `$2002` returns bit 6) and [`sprite-8x16.poncho`](tests/roms/poncho/sprite-8x16.poncho) (PPUCTRL = $20, sprite tile = 0x00, two 8×8 tiles uploaded; verifies a 32×64 red block at Poncho (32, 64)..(63, 127)).
-  - 11 new tests (8 unit covering hit detection + visibility/quirk gating + flag-clear timing + 8×16 render in both pattern tables; 3 integration). Total: 344 passed, 1 skipped.
-- **Upscaled-OAM render path (Phase 5 of v0.3.0)** —
-  - `$4014` OAM DMA copies 256 bytes when the cart is in upscaled mode (was always 512). PpuUltra reads exactly the NES-shape page that converted PRG knows how to populate.
-  - New `renderSpritesUpscaled()` walks 64 × 4-byte NES OAM entries (`[y, tile, attr, x]`). Position is scaled ×4 from NES → Poncho px so a sprite at NES (8, 16) lands at Poncho (32, 64) as a 32 × 32 block. Sprite tile bytes fetched via `chrReader` at `spritePatternBase + tile * 16`. Sub-palette from attr bits 0-1; flip-H from bit 6; flip-V from bit 7. Off-screen y values (≥ 0xEF) skip rendering.
-  - 8×16 sprite mode (PPUCTRL bit 5) and sprite-0 hit / BG priority remain pending — Phase 6.
-  - Synthetic ROM [`upscaled-sprite.poncho`](tests/roms/poncho/upscaled-sprite.poncho) generated by [`scripts/gen-poncho-rom/upscaled-sprite.ts`](scripts/gen-poncho-rom/upscaled-sprite.ts): PRG uploads tile 0 + a 1-entry sprite palette, then writes OAM[0..3] = `[16, 0, 0x01, 8]`. Visible frame shows a 32 × 32 red square at Poncho (32, 64); BG is black.
-  - 8 new tests (5 unit covering upscale-render coords / flip-H / off-screen-skip / DMA size in both modes, 3 integration). Total: 333 passed, 1 skipped.
-- **Upscaled-CHR render path (Phase 4 of v0.3.0)** —
-  - PpuUltra gains an upscaled BG render mode selected by `flags.upscaledMode`. The chip walks 8×8 2 bpp NES tiles in 256×240 NES-pixel coordinate space and paints each NES pixel as a 4×4 block in the 1024×960 framebuffer. Per-pixel walk so non-tile-aligned scroll values land on the right source position; the inner loop caches the last tile-column lookup so cost amortises to one CHR fetch per tile column per scanline.
-  - Companion methods: `setChrReader(fn)` (CHR fetch source — wired to `cart.mapper.ppuRead` in upscaled mode) and `setChrWriter(fn)` (routes `$2007` writes in `$0000-$1FFF` through to the cart, so PRG-driven CHR-RAM uploads persist). `setUpscaledMode(bool)` toggles the path.
-  - PpuUltra still honours `mapper.mirroring()` + PPUCTRL base-NT + $2005 scroll in upscaled mode — multi-nametable scrolling is the same machinery as native mode, just operating in NES-pixel coordinates.
-  - PonchoNes wires the callbacks at `loadRom` from `cart.layout.header.flags.upscaledMode`. `unload` clears them.
-  - Synthetic ROM [`upscaled-chr.poncho`](tests/roms/poncho/upscaled-chr.poncho) generated by [`scripts/gen-poncho-rom/upscaled-chr.ts`](scripts/gen-poncho-rom/upscaled-chr.ts): `flags.upscaledMode=1`, 8 KB CHR-RAM, NROM banking. PRG uploads a column-stripe NES tile (16 bytes via `$2007`) plus a 2-entry palette, then halts. The visible 1024 × 960 frame shows 4-px-wide red stripes every 32 px.
-  - 6 new tests (3 unit for the upscaled render path / chrWriter routing / no-chrReader fallback, 3 integration). Total: 325 passed, 1 skipped.
-- **Multi-nametable + mirroring (Phase 3 of v0.3.0)** —
-  - `PpuUltra.setMirroring(m)` configures the logical → physical nametable lookup; called by `PonchoNes.loadRom` from `cart.mapper.mirroring()`. Supported modes: horizontal, vertical, single-low, single-high. Four-screen falls back to vertical until cart-supplied 4 KB VRAM lands.
-  - `vramWrite` now respects the active mirroring: writes to `$2000-$2FFF` route to the correct physical page (NT0/NT1 or NT0/NT2 paired etc.) instead of the previous fixed alias.
-  - `renderFrame` walks a 2 × 2 virtual nametable grid (2048 × 1920 px source). PPUCTRL bits 0–1 (`baseNametable`) feed into the effective scroll, so games can flip the visible area between NT0/NT1/NT2/NT3 without poking $2005. Tile + attribute fetches re-base whenever the scan crosses a nametable boundary.
-  - Exported helper `resolvePhysicalNT(logicalNT, mirroring)` for tests + future bug triage.
-  - Synthetic test ROM [`multi-nametable.poncho`](tests/roms/poncho/multi-nametable.poncho) at [`scripts/gen-poncho-rom/multi-nametable.ts`](scripts/gen-poncho-rom/multi-nametable.ts): vertical mirroring, NROM-style banking, fills NT0 with tile 0 (red) and NT1 with tile 1 (green), sets PPUCTRL base NT = 1; the visible 1024 × 960 area shows green end-to-end.
-  - 11 new tests (4 unit for `resolvePhysicalNT`, 4 unit for $2007-write routing under each mirror mode, 3 integration for the synthetic ROM). Total: 319 passed, 1 skipped.
-- **PonchoMapper banking variants (Phase 2 of v0.3.0)** —
-  - PonchoMapper now dispatches to a per-variant PRG-window strategy chosen at construction from the cartridge's `mapper_submode` low byte. NROM-style (variant 0, flat mirror) and UxROM-style (variant 2, 16 KB switchable @ $8000-$BFFF + fixed last bank @ $C000-$FFFF, bank-select on any write to $8000-$FFFF) implemented. MMC1 / CNROM / MMC3 / AxROM throw `not yet implemented` until Phase 8 lands them.
-  - Bank index wraps modulo bank-count, so non-power-of-two PRG sizes (rare but legal) work.
-  - [`PonchoCartridge`](src/core/cart-poncho/cartridge.ts) decodes `mapper_submode` and passes `bankingVariant` + `bootMirroring` to the mapper. `mapper.mirroring()` returns the canonical `Mirroring` string from the encoded boot value.
-  - Synthetic test ROM [`uxrom-bankswitch.poncho`](tests/roms/poncho/uxrom-bankswitch.poncho) generated by [`scripts/gen-poncho-rom/uxrom-bankswitch.ts`](scripts/gen-poncho-rom/uxrom-bankswitch.ts). 64 KB PRG, 4 banks, code in fixed bank 3 selects banks 0/1/2 in sequence and stores their sentinel bytes to zero-page $00/$01/$02. End-to-end integration test runs the ROM for one frame and asserts `ram[0..2] = [0xA0, 0xA1, 0xA2]`.
-  - 14 new tests (11 unit + 3 integration). Total: 308 passed, 1 skipped.
-- **v0.3.0 plan** at [`docs/v0.3.0-plan.md`](docs/v0.3.0-plan.md) — phased roadmap to ship Poncho-NES native support for converted iNES games (Contra as lead validation game). Runtime work first (PpuUltra modes, PonchoMapper variants, format extensions), converter on top.
-- **PonchoROM format extensions (Phase 1 of v0.3.0)** —
+_Nothing yet — see [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md) for what's next._
+
+## [0.3.0] — 2026-05-07
+
+> Poncho-NES native runtime + iNES converter. The runtime gains everything needed
+> to play a converted Contra: per-scanline rendering, sprite-0 hit, 8×16 sprites,
+> all major mapper banking variants, CHR-RAM, palette mirroring, and `$2007` read
+> buffering. The converter wraps any iNES ROM (NROM/MMC1/UxROM/CNROM/MMC3/AxROM)
+> as an upscaled-mode `.poncho` cartridge that runs on PpuUltra without any
+> compatibility shims at runtime. A "Convert .nes" UI button puts the workflow
+> directly in the web shell. See [`docs/v0.3.0-plan.md`](docs/v0.3.0-plan.md) for
+> the full release plan.
+>
+> Validation: Contra title screen + first level boot through the converter and
+> render essentially identically to the classic NES emulator (99–100% pixel match
+> outside of heavy-sprite scenes where Poncho-NES legitimately renders more
+> sprites than NES would due to the latter's 8-per-scanline hardware limit).
+
+### Added — Track A: runtime
+
+- **PonchoROM format extension (Phase 1)**
   - `flags.upscaledMode` (bit 0): renamed from `nesCompat` and re-purposed. When set, the cartridge declares NES-shape CHR (8×8 2 bpp) and NES-shape OAM (4-byte sprites at 8-bit coords); PpuUltra renders each NES pixel as a 4×4 block. Both upscaled and native (clear) modes are first-class native capabilities of the chip — no compat layer.
-  - `mapperSubmode` field formalised: bits 0–7 = PonchoMapper banking variant (0 = NROM-style, 2 = UxROM-style, 4 = MMC3-style, etc., matching iNES mapper numbers); bits 8–9 = boot-time nametable mirroring; bits 10–15 reserved. Codec helpers `encodeMapperSubmode` / `decodeMapperSubmode` exported from [`src/core/cart-poncho/header.ts`](src/core/cart-poncho/header.ts).
-  - **CHR-RAM allocation**: when `chrRamKb > 0`, [`PonchoCartridge`](src/core/cart-poncho/cartridge.ts) allocates a writable CHR-RAM buffer of the declared size and exposes `chrIsRam = true`. PonchoMapper now routes `ppuWrite` into that buffer (no-op for CHR-ROM cartridges). Lays the groundwork for Contra and other CHR-RAM games to upload tiles via $2007.
-  - 5 new tests covering mapperSubmode round-trip, CHR-RAM allocation/writability, and CHR-ROM write-drop. Total: 294 passed, 1 skipped.
-- **iNES → PonchoROM converter** at [`scripts/poncho-convert.ts`](scripts/poncho-convert.ts) + [`scripts/lib/ines-to-poncho.ts`](scripts/lib/ines-to-poncho.ts). NROM (mapper 0) only for v1 — that covers Donkey Kong, Excitebike, Ice Climber, Mario Bros., Galaxian, Pac-Man, and ~85 other titles. CHR is upscaled 4×4 nearest-neighbour from 8×8 2 bpp NES tiles to 32×32 8 bpp Poncho tiles. PRG copied verbatim. Master palette = canonical 64-entry NES palette. Source iNES CRC32 recorded in the header for traceability. Run with `npm run poncho:convert -- <input.nes> [output.poncho] [--title "Name"]`. 13 unit tests cover CHR upscaling pixel correctness, header round-trip, mapper/CHR-RAM/trainer rejection, title truncation, and end-to-end loading via `detectConsole` + `PonchoNes.loadRom`. Sprites/scrolling are still broken on converted ROMs because of OAM-layout and single-screen-nametable gaps in `PpuUltra` — those are the next test-driven fixes.
-- **Overscan crop** for Classic NES (`src/renderer/filters/overscan.ts`). `OverscanCropFilter` trims a configurable number of pixels from each edge, hiding the BG-LEFT clip region that games expose during horizontal scrolling. Default values: Left 8, Top/Bottom/Right 0 — crops only the left-side strip that games expect CRT overscan to conceal. Per-side pixel values are editable in Settings → Video (the four inputs appear when the checkbox is ticked, collapse when it is not). Hidden entirely for Poncho-NES, which outputs at its native 1024×960.
+  - `mapperSubmode` formalised: bits 0–7 = PonchoMapper banking variant (0 = NROM-style, 2 = UxROM-style, 4 = MMC3-style, etc., matching iNES mapper numbers); bits 8–9 = boot-time nametable mirroring; bits 10–15 reserved. Codec helpers `encodeMapperSubmode` / `decodeMapperSubmode` exported from [`src/core/cart-poncho/header.ts`](src/core/cart-poncho/header.ts).
+  - **CHR-RAM allocation**: when `chrRamKb > 0`, [`PonchoCartridge`](src/core/cart-poncho/cartridge.ts) allocates a writable CHR-RAM buffer of the declared size and exposes `chrIsRam = true`.
+- **PonchoMapper banking variants (Phases 2 + 8)** — full set of variants in [`src/core/mappers-poncho/variants/`](src/core/mappers-poncho/variants/), each implementing `Mapper` directly with its own state. Selected at construction from `mapper_submode` low byte:
+  - **NROM-style** (variant 0) — flat mirror, no banking.
+  - **UxROM-style** (variant 2) — 16 KB switchable @ $8000-$BFFF, fixed last bank @ $C000-$FFFF, bank-select on any write to $8000-$FFFF.
+  - **MMC1-style** (variant 1) — 5-bit serial register protocol; PRG modes 0/1 (32 KB), 2 (fixed first / switch second), 3 (switch first / fixed last); CHR modes 0 (single 8 KB) / 1 (two 4 KB); runtime mirroring control. Bit-7 reset forces PRG mode 3.
+  - **CNROM-style** (variant 3) — any write to $8000-$FFFF selects an 8 KB CHR bank.
+  - **MMC3-style** (variant 4) — per-1 KB CHR banking with two layout modes; PRG/CHR mode swap; scanline IRQ counter clocked by filtered PPU A12 0→1 edges (10-dot low filter via `tickPpu`). Four-screen mirroring locked when boot mirroring is four-screen.
+  - **AxROM-style** (variant 7) — 32 KB switchable PRG bank; bit 4 of bank-select toggles single-low vs single-high mirroring.
+  - PonchoMapper restructured as a thin delegating wrapper.
+- **Multi-nametable + mirroring (Phase 3)** — PpuUltra honors the four logical nametables ($2000/$2400/$2800/$2C00) under horizontal / vertical / single-low / single-high. Four-screen falls back to vertical until cart-supplied 4 KB VRAM lands. PPUCTRL `baseNametable` + $2005 scroll fold into a 2 × 2 virtual nametable grid; tile + attribute fetches re-base on nametable-boundary crossings. Exported helper `resolvePhysicalNT(logicalNT, mirroring)`.
+- **Upscaled-CHR render path (Phase 4)** — PpuUltra walks 8×8 2 bpp NES tiles in 256×240 NES-pixel coordinate space, painting each NES pixel as a 4×4 block in the 1024×960 framebuffer. CHR fetched via `chrReader` callback (wired to `mapper.ppuRead`); `$2007` writes in `$0000-$1FFF` route through `chrWriter` so PRG-driven CHR-RAM uploads persist. `setUpscaledMode(bool)` toggles the path.
+- **Upscaled-OAM render path (Phase 5)** — `$4014` OAM DMA copies 256 bytes when `upscaledMode` is set; PpuUltra walks 64 × 4-byte NES OAM (`[y, tile, attr, x]`); position scaled ×4 from NES → Poncho px; sub-palette from attr bits 0–1, flip-H bit 6, flip-V bit 7; off-screen `y >= 0xEF` skipped.
+- **Sprite-0 hit + 8×16 sprite mode (Phase 6)** — sprite-0 hit pre-computed at the pre-render scanline, fired during the matching visible-scanline dot. PPUCTRL bit 5 selects 8×16 sprites: tile LSB picks pattern table, `tile & 0xFE` is the top tile, `+1` is the bottom; renders as a 32×64 Poncho block.
+- **Per-scanline BG rendering (Phase 7)** — PpuUltra's BG render moved out of vblank-entry into a per-scanline event in `tick()`. `renderScanlineUpscaled(nesY)` paints the 4 Poncho rows for one NES scanline using the chip's CURRENT state; called at dot 340 of each visible scanline. Mid-frame palette / scroll / `showBg` writes take effect on the next-rendered scanline. Eager `renderFrameUpscaled()` becomes a thin loop over the new method (used by direct-render unit tests). `refreshBgColor` no longer fills the framebuffer (would wipe per-scanline output on mid-frame palette writes).
 
-### Changed
-- ROMs panel filters browser-storage and server lists by the active console's file extension (`.nes` for Classic NES, `.poncho` for Poncho-NES). Upload button label and panel title update when switching consoles.
+### Added — Track B: converter
 
-### Fixed
+- **iNES → upscaled-mode PonchoROM converter v2 (Phase 9)** — [`src/convert/ines-to-poncho.ts`](src/convert/ines-to-poncho.ts). Replaces the v0.2 NROM-only converter. Supports all 6 PonchoMapper banking variants. PRG copied verbatim. CHR-ROM embedded verbatim; CHR-RAM games get `chrRamKb=8`. iNES mirroring maps into the boot-mirroring sub-field of `mapper_submode`. `flags.upscaledMode = 1`. Source iNES CRC32 recorded in the header. Lives under `src/` so the web shell imports client-side; `scripts/lib/ines-to-poncho.ts` is a thin re-export.
+- **"Convert .nes" button in the ROMs panel** (web shell) — visible only when Poncho-NES is the active console; sits next to "Upload .poncho". Opens a file picker accepting `.nes`. On selection: client-side conversion, result stored in the IndexedDB library under `basename.poncho`, list refreshed. Conversion errors surface in the status bar.
+- **Phase 10 — Contra end-to-end validation** — found and fixed four PpuUltra correctness issues that surface only against real games:
+  - **Palette mirroring** — `$3F10/$3F14/$3F18/$3F1C` writes now mirror to `$3F00/$3F04/$3F08/$3F0C` per NES hardware. Universal-BG was going stale when PRG wrote via the mirror. New free function `mirrorPaletteAddr(addr)`.
+  - **`$2007` (PPUDATA) reads** — implemented with the standard 1-byte read buffer for `$0000-$3EFF` and direct read for `$3F00-$3FFF` (with buffer refilled from `addr-$1000`). Previously returned 0.
+  - **Sprite y-coordinate hardware delay** — NES OAM y stores `actual_y - 1`; sprites display at `(yNes + 1)..(yNes + height)`. PpuUltra was rendering one scanline too high. Fixed in `renderSpritesUpscaled` and `computeSprite0HitScanline`.
+  - **Sprite priority order** — NES draws lower-index sprites *in front of* higher-index. Iteration reversed (63 → 0).
+- **Diagnostic harness** — [`scripts/diagnose-contra.ts`](scripts/diagnose-contra.ts): converts Contra, runs both consoles in parallel for N frames, dumps cross-console state diff (CPU PC, CPU RAM, OAM, palette, nametable, CHR), per-pixel match count, and a register-write timeline. Reusable for future game debugging.
+
+### Synthetic test ROMs (committed under `tests/roms/poncho/`)
+
+One per phase, generated via `npm run gen:poncho:<name>`:
+`uxrom-bankswitch`, `multi-nametable`, `upscaled-chr`, `upscaled-sprite`, `sprite0-hit`, `sprite-8x16`, `scanline-split`, `mmc1-bankswitch`.
+
+### Tests
+
+84 net new tests across the v0.3.0 cycle. Final count: **366 passed, 1 skipped** (up from 276 at v0.2.0).
+
+### Format spec
+
+[`docs/poncho-rom.md`](docs/poncho-rom.md) updated with the new "Upscaled vs native modes" table, the formalised "Mapper submode" section, and the rewritten "Conversion from iNES" pipeline that matches the v0.3 architecture (verbatim PRG/CHR, no transpiler).
+
+### Documentation
+
+- New [`docs/v0.3.0-plan.md`](docs/v0.3.0-plan.md) — phased roadmap (this release).
+- New [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md) — wider game coverage + regression harness + AI upscaling.
+
+### Pre-v0.3-plan changes (still part of the 0.3 release)
+
+These shipped on `main` between v0.2.0 and the v0.3.0 plan kickoff:
+
+- **Overscan crop** for Classic NES ([`src/renderer/filters/overscan.ts`](src/renderer/filters/overscan.ts)). `OverscanCropFilter` trims a configurable number of pixels from each edge, hiding the BG-LEFT clip region that games expose during horizontal scrolling. Defaults: Left 8, Top/Bottom/Right 0. Per-side values editable in Settings → Video (4 inputs appear when the checkbox is ticked). Hidden entirely for Poncho-NES (native 1024 × 960 output).
+- **ROMs panel filters by active console's extension** — `.nes` for Classic NES, `.poncho` for Poncho-NES. Upload button label and panel title update on console switch.
+- **NES-compat sub-mode removed** from Poncho-NES (initial pre-Phase-1 cleanup; replaced by the v0.3 upscaled-mode flag). `PpuUltra.setNesCompat()` / `setChrReader()` / `renderFrameNesCompat()` removed. `BusCartridge` structural interface dropped; the bus is typed directly to `PonchoCartridge`.
+
+### Fixed (overscan UI bugs)
+
 - Overscan inputs were visible on panel open even when overscan was disabled. Root cause: `display: grid` on `.overscan-inputs` overrode the `hidden` attribute. Fixed with `.overscan-inputs[hidden] { display: none; }`.
-- Users with configs stored from earlier sessions received stale overscan values (8/8/8/8 from the first commit of this feature). Config version bumped 1 → 2; v1 → v2 migration resets overscan to the correct defaults.
-- White/black border appeared around the viewport when overscan was active. Root cause: hardcoded `aspect-ratio: 16 / 15` on `#screen` was sized against the bare 256×240 output; when the canvas was cropped to a different ratio (e.g. 248×240), the CSS forced a wider display than the pixel content and the gap showed as a border. Removed the hardcoded ratio — the canvas's intrinsic dimensions are already correct.
+- Users with configs from earlier sessions received stale overscan values (8/8/8/8). Config version bumped 1 → 2; the v1 → v2 migration resets overscan to the correct defaults.
+- White/black border appeared around the viewport when overscan was active. Removed the hardcoded `aspect-ratio: 16 / 15` from `#screen`; the canvas's intrinsic dimensions already encode the correct ratio.
 
-### Removed
-- **NES-compat sub-mode** from Poncho-NES. `PonchoNes.loadRom()` now only accepts `.poncho` ROMs and throws `PonchoRomError` on anything else. iNES files continue to route to the classic NES console via `detectConsole`.
-- `PpuUltra.setNesCompat()`, `PpuUltra.setChrReader()`, and the `renderFrameNesCompat()` render path (8×8 2 bpp tile upscaling). OAM DMA is always 512 bytes (native Poncho-NES size).
-- `BusCartridge` structural interface from `bus-poncho/cpu-bus.ts`; the bus is now typed directly to `PonchoCartridge`.
-- `nes-master-palette.ts` is no longer imported by `poncho-nes.ts` (still present for potential future use).
-- Compat integration test suite (`tests/integration/poncho-synthetic.test.ts` — `NES-compat` describe block) and the `tests/roms/poncho/compat-bg.nes` fixture.
+### Known divergence vs Classic NES
+
+- **8-sprites-per-scanline limit** — Poncho-NES renders all 64 sprites without per-scanline truncation. Classic NES drops sprites past 8 on a given scanline (causing the famous flicker). For Contra and similar sprite-heavy games, this means Poncho-NES shows ~5–20% more pixels per frame in heavy scenes. This is an intentional design enhancement, not a bug.
 
 ## [0.2.0] — 2026-05-06
 
@@ -168,6 +172,7 @@ First public release.
 - Pluggable rendering pipeline: separate filter and scaler stages.
 - Pluggable RomInfo sources behind a unified cache.
 
-[Unreleased]: https://github.com/DaJungle79/poncho/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/DaJungle79/poncho/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/DaJungle79/poncho/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/DaJungle79/poncho/releases/tag/v0.2.0
 [0.1.0]: https://github.com/DaJungle79/poncho/releases/tag/v0.1.0

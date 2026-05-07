@@ -355,16 +355,16 @@ describe('synthetic PonchoROM: sprite-8x16', () => {
       const black = 0xff000000;
       const px = (y: number, x: number) => fb.data[y * 1024 + x];
 
-      // Top of sprite (NES y=16 → Poncho y=64).
-      expect(px(64, 32)).toBe(red);
-      expect(px(64, 63)).toBe(red);
-      // Mid-sprite — bottom-half rows. NES y=24..31 → Poncho 96..127.
-      expect(px(95, 32)).toBe(red);    // last row of top half
-      expect(px(96, 32)).toBe(red);    // first row of bottom half
-      expect(px(127, 32)).toBe(red);   // bottom of sprite
+      // OAM y=16 → NES y=17 (NES hardware sprite delay) → Poncho y=68.
+      // 8x16 sprite spans Poncho rows 68..131.
+      expect(px(68, 32)).toBe(red);
+      expect(px(68, 63)).toBe(red);
+      expect(px(99, 32)).toBe(red);    // last row of top half
+      expect(px(100, 32)).toBe(red);   // first row of bottom half
+      expect(px(131, 32)).toBe(red);   // bottom of sprite
       // Just outside.
-      expect(px(63, 48)).toBe(black);  // one row above
-      expect(px(128, 48)).toBe(black); // one row below the 8×16 block
+      expect(px(67, 48)).toBe(black);  // one row above
+      expect(px(132, 48)).toBe(black); // one row below the 8×16 block
     },
   );
 });
@@ -397,15 +397,15 @@ describe('synthetic PonchoROM: upscaled-sprite', () => {
       const black = 0xff000000;
       const px = (y: number, x: number) => fb.data[y * 1024 + x];
 
-      // Inside the sprite — Poncho (32..63, 64..95).
-      expect(px(64, 32)).toBe(red);
-      expect(px(64, 63)).toBe(red);
-      expect(px(95, 32)).toBe(red);
-      expect(px(95, 63)).toBe(red);
+      // OAM y=16 → NES y=17 → Poncho y=68. Sprite spans Poncho (32..63, 68..99).
+      expect(px(68, 32)).toBe(red);
+      expect(px(68, 63)).toBe(red);
+      expect(px(99, 32)).toBe(red);
+      expect(px(99, 63)).toBe(red);
       expect(px(80, 48)).toBe(red); // mid-sprite
       // Outside the sprite — should be BG (black).
-      expect(px(63, 48)).toBe(black); // one row above
-      expect(px(96, 48)).toBe(black); // one row below
+      expect(px(67, 48)).toBe(black); // one row above
+      expect(px(100, 48)).toBe(black); // one row below
       expect(px(80, 31)).toBe(black); // one col left
       expect(px(80, 64)).toBe(black); // one col right
     },
