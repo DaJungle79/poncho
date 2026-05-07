@@ -180,3 +180,7 @@ If the change is structural (renaming/moving modules, changing the `Platform` in
 For deferred work / known gaps, the home is `DEFERRED.md`. When closing one of those, update it instead of silently deleting the entry — the *why deferred* and *how to verify* notes are part of the project's institutional memory.
 
 For *future* features (things not yet shipped, not yet broken), the home is `ROADMAP.md`. When you ship a roadmap item, move it from `ROADMAP.md` to `CHANGELOG.md` under `## [Unreleased]` in the same change set.
+
+## GitHub rules
+
+Never commit automatically! Always ask the user.
