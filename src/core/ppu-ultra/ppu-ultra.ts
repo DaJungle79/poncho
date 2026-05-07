@@ -355,7 +355,14 @@ export class PpuUltra {
     const isPreRender   = this.scanline === PRE_RENDER_SCANLINE && this.dot === VBLANK_DOT;
 
     if (isVblankEntry) {
-      this.renderFrame();
+      // Upscaled mode: BG was rendered scanline-by-scanline during the
+      // visible region using the state-at-each-scanline. We just need to
+      // overlay sprites at frame end. Native mode keeps the eager render.
+      if (this.upscaledMode) {
+        this.renderSpritesUpscaled();
+      } else {
+        this.renderFrame();
+      }
       this.vblankFlag = true;
       if (this.nmiEnabled) this.nmiCallback?.();
     }
@@ -370,14 +377,25 @@ export class PpuUltra {
     }
     // Sprite-0 hit fires at the dot of collision during visible rendering.
     // We fire at dot 1 of the pre-computed scanline as a deterministic
-    // approximation; pixel-exact dot detection arrives with Phase 7's
-    // scanline-grained render refactor.
+    // approximation; pixel-exact dot detection requires per-cycle render
+    // accuracy which is not currently a goal.
     if (
       this.sprite0HitScanline >= 0 &&
       this.scanline === this.sprite0HitScanline &&
       this.dot === VBLANK_DOT
     ) {
       this.sprite0Hit = true;
+    }
+    // Per-scanline BG render (upscaled mode only) — fires at the END of
+    // each visible scanline so PRG state changes mid-scanline still apply
+    // by render time. State changes after end-of-scanline take effect on
+    // the NEXT scanline, matching what NES PPU does at coarse precision.
+    if (
+      this.upscaledMode &&
+      this.scanline < 240 &&
+      this.dot === DOTS_PER_SCANLINE - 1
+    ) {
+      this.renderScanlineUpscaled(this.scanline);
     }
 
     this.dot++;
@@ -534,28 +552,44 @@ export class PpuUltra {
   }
 
   /**
-   * Upscaled-mode BG render. Walks the NES BG layer in 256×240 NES-px
-   * coordinate space (one nametable's worth of source content), painting
-   * each NES pixel as a 4×4 block in the 1024×960 framebuffer.
+   * Eager full-frame upscaled-mode render. Walks all 240 NES scanlines
+   * + sprites in one pass using current state. Used by direct callers
+   * (e.g. unit tests that drive PpuUltra without a CPU).
    *
-   * Per-pixel walk so non-tile-aligned scroll values still hit the right
-   * source position; the inner loop caches the last tile-column lookup so
-   * the cost is amortised to one CHR fetch (8-byte plane pair) per tile
-   * column per scanline.
-   *
-   * Sprites are not yet rendered in upscaled mode — they land in Phase 5
-   * along with NES-shape OAM translation.
+   * Production rendering is per-scanline: `tick()` calls
+   * `renderScanlineUpscaled` at the end of each visible scanline using
+   * the state at that moment, then overlays sprites at vblank-entry.
+   * That's what makes mid-frame palette/scroll changes (status-bar
+   * splits, parallax) work correctly.
    */
   private renderFrameUpscaled(): void {
+    for (let nesY = 0; nesY < 240; nesY++) {
+      this.renderScanlineUpscaled(nesY);
+    }
+    this.renderSpritesUpscaled();
+  }
+
+  /**
+   * Render one NES scanline of BG (= 4 Poncho rows) using the chip's
+   * **current** state. Each NES pixel becomes a 4×4 block in the
+   * framebuffer. Honors mirroring + scroll + base-NT.
+   *
+   * If BG is disabled or no chrReader is wired, fills the 4 Poncho rows
+   * with the universal-BG colour so a half-rendered frame shows nothing
+   * stale.
+   */
+  private renderScanlineUpscaled(nesY: number): void {
     const reader = this.chrReader;
     const fb = this.framebuffer.data;
     const universalBg = this.bgColor;
+    const width = ULTRA_WIDTH;
+    const ponchoRowBase = nesY * 4 * width;
+
     if (reader === null || !this.showBackground) {
-      fb.fill(universalBg);
+      fb.fill(universalBg, ponchoRowBase, ponchoRowBase + 4 * width);
       return;
     }
 
-    const width = ULTRA_WIDTH;
     const pal = this.paletteRam;
     const master = this.masterPalette;
     const masterLen = master.length;
@@ -563,8 +597,6 @@ export class PpuUltra {
     const bgPatternBase = this.bgPatternBase;
     const mirroring = this.nametableMirroring;
 
-    // PPUCTRL base-NT + $2005 scroll combine in NES-pixel coordinates.
-    // Effective scroll wraps at the 2-NT virtual plane (512 × 480 NES px).
     const NES_W = 256;
     const NES_H = 240;
     const VW = NES_W * 2;
@@ -574,62 +606,66 @@ export class PpuUltra {
     const effSx = (this.scrollX + baseNTH * NES_W) % VW;
     const effSy = (this.scrollY + baseNTV * NES_H) % VH;
 
-    for (let py = 0; py < ULTRA_HEIGHT; py++) {
-      const nesScreenY = py >> 2; // 4 Poncho rows per NES row
-      const virtualNesY = (nesScreenY + effSy) % VH;
-      const ntV = (virtualNesY / NES_H) | 0;
-      const localNesY = virtualNesY - ntV * NES_H;
-      const tileRow = (localNesY / 8) | 0;
-      const tileLocalY = localNesY & 7;
+    const virtualNesY = (nesY + effSy) % VH;
+    const ntV = (virtualNesY / NES_H) | 0;
+    const localNesY = virtualNesY - ntV * NES_H;
+    const tileRow = (localNesY / 8) | 0;
+    const tileLocalY = localNesY & 7;
 
-      let dst = py * width;
-      let lastNtH = -1;
-      let lastTileCol = -1;
-      let physBase = 0;
-      let plane0 = 0;
-      let plane1 = 0;
-      let subPalette = 0;
+    let lastNtH = -1;
+    let lastTileCol = -1;
+    let physBase = 0;
+    let plane0 = 0;
+    let plane1 = 0;
+    let subPalette = 0;
 
-      for (let px = 0; px < ULTRA_WIDTH; px++) {
-        const nesScreenX = px >> 2;
-        const virtualNesX = (nesScreenX + effSx) % VW;
-        const ntH = (virtualNesX / NES_W) | 0;
-        const localNesX = virtualNesX - ntH * NES_W;
-        const tileCol = (localNesX / 8) | 0;
-        const tileLocalX = localNesX & 7;
+    // Walk the row of NES pixels (256 wide). Each NES px becomes a 4×4
+    // block in 4 Poncho rows. The inner 4-by-4 fill is unrolled.
+    for (let nesX = 0; nesX < NES_W; nesX++) {
+      const virtualNesX = (nesX + effSx) % VW;
+      const ntH = (virtualNesX / NES_W) | 0;
+      const localNesX = virtualNesX - ntH * NES_W;
+      const tileCol = (localNesX / 8) | 0;
+      const tileLocalX = localNesX & 7;
 
-        if (ntH !== lastNtH) {
-          lastNtH = ntH;
-          lastTileCol = -1;
-          const logicalNT = ntV * 2 + ntH;
-          const physicalNT = resolvePhysicalNT(logicalNT, mirroring);
-          physBase = physicalNT * NAMETABLE_SIZE;
-        }
-        if (tileCol !== lastTileCol) {
-          lastTileCol = tileCol;
-          const tileIdx = ntRam[physBase + tileRow * TILE_COLS + tileCol]!;
-          const baseAddr = bgPatternBase + tileIdx * 16;
-          plane0 = reader(baseAddr + tileLocalY) & 0xff;
-          plane1 = reader(baseAddr + 8 + tileLocalY) & 0xff;
-          const attrByte = ntRam[physBase + 960 + (tileRow >> 2) * 8 + (tileCol >> 2)]!;
-          const attrShift = ((tileRow & 2) << 1) | (tileCol & 2);
-          subPalette = (attrByte >> attrShift) & 0x3;
-        }
-
-        const bit = 7 - tileLocalX;
-        const pv = ((plane0 >> bit) & 1) | (((plane1 >> bit) & 1) << 1);
-        let color: number;
-        if (pv === 0) {
-          color = universalBg;
-        } else {
-          const idx = pal[subPalette * 4 + pv]! % masterLen;
-          color = master[idx]!;
-        }
-        fb[dst++] = color;
+      if (ntH !== lastNtH) {
+        lastNtH = ntH;
+        lastTileCol = -1;
+        const logicalNT = ntV * 2 + ntH;
+        const physicalNT = resolvePhysicalNT(logicalNT, mirroring);
+        physBase = physicalNT * NAMETABLE_SIZE;
       }
-    }
+      if (tileCol !== lastTileCol) {
+        lastTileCol = tileCol;
+        const tileIdx = ntRam[physBase + tileRow * TILE_COLS + tileCol]!;
+        const baseAddr = bgPatternBase + tileIdx * 16;
+        plane0 = reader(baseAddr + tileLocalY) & 0xff;
+        plane1 = reader(baseAddr + 8 + tileLocalY) & 0xff;
+        const attrByte = ntRam[physBase + 960 + (tileRow >> 2) * 8 + (tileCol >> 2)]!;
+        const attrShift = ((tileRow & 2) << 1) | (tileCol & 2);
+        subPalette = (attrByte >> attrShift) & 0x3;
+      }
 
-    this.renderSpritesUpscaled();
+      const bit = 7 - tileLocalX;
+      const pv = ((plane0 >> bit) & 1) | (((plane1 >> bit) & 1) << 1);
+      let color: number;
+      if (pv === 0) {
+        color = universalBg;
+      } else {
+        const idx = pal[subPalette * 4 + pv]! % masterLen;
+        color = master[idx]!;
+      }
+
+      const ponchoX0 = nesX * 4;
+      const r0 = ponchoRowBase + ponchoX0;
+      const r1 = r0 + width;
+      const r2 = r1 + width;
+      const r3 = r2 + width;
+      fb[r0] = color; fb[r0 + 1] = color; fb[r0 + 2] = color; fb[r0 + 3] = color;
+      fb[r1] = color; fb[r1 + 1] = color; fb[r1 + 2] = color; fb[r1 + 3] = color;
+      fb[r2] = color; fb[r2 + 1] = color; fb[r2 + 2] = color; fb[r2 + 3] = color;
+      fb[r3] = color; fb[r3 + 1] = color; fb[r3 + 2] = color; fb[r3 + 3] = color;
+    }
   }
 
   /**
@@ -745,13 +781,6 @@ export class PpuUltra {
   }
 
   /**
-   * Recompute the universal-BG colour and eagerly fill the framebuffer.
-   * Eager-fill makes the framebuffer reflect palette changes immediately
-   * (cheap for our use, and tests inspect pixels without manually
-   * driving a full frame). The next `renderFrame()` overwrites it tile-
-   * by-tile if there's actual tile data to draw.
-   */
-  /**
    * Read the BG pixel value (0..3) at NES coord (nx, ny). Mirrors the
    * inner loop of `renderFrameUpscaled` for a single pixel — used by
    * sprite-0 hit detection. Returns 0 (transparent) when BG is disabled
@@ -852,6 +881,15 @@ export class PpuUltra {
     return -1;
   }
 
+  /**
+   * Update the cached universal-BG colour from `paletteRam[0]`. Called
+   * whenever palette RAM or the master palette changes.
+   *
+   * Does NOT touch the framebuffer — per-scanline rendering owns every
+   * pixel and a mid-frame palette write must not wipe scanlines that
+   * have already been drawn (that's exactly what the status-bar split
+   * pattern depends on).
+   */
   private refreshBgColor(): void {
     if (this.masterPalette.length === 0) {
       this.bgColor = 0xff000000;
@@ -859,7 +897,6 @@ export class PpuUltra {
       const idx = this.paletteRam[0]! % this.masterPalette.length;
       this.bgColor = this.masterPalette[idx]!;
     }
-    this.framebuffer.data.fill(this.bgColor);
   }
 }
 

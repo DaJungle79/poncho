@@ -15,6 +15,10 @@ describe('PpuUltra (minimal stub)', () => {
     const ppu = new PpuUltra();
     // R=0xE6, G=0x3E, B=0x32, A=0xFF → 0xFF323EE6
     ppu.setMasterPalette(new Uint8Array([0xe6, 0x3e, 0x32, 0xff]));
+    // setMasterPalette no longer eagerly fills the framebuffer (a mid-frame
+    // palette change must not wipe per-scanline output); render explicitly
+    // to inspect the universal-BG fill.
+    ppu.renderFrame();
     expect(ppu.framebuffer.data[0]).toBe(0xff323ee6);
     expect(ppu.framebuffer.data[ppu.framebuffer.data.length - 1]).toBe(0xff323ee6);
     // Spot-check a pixel in the middle.
@@ -86,6 +90,9 @@ describe('PpuUltra register file: $2000 / $2006 / $2007', () => {
     ppu.cpuWrite(0x2007, 0x05);
 
     expect(ppu.paletteRam[0]).toBe(0x05);
+    // Per-scanline rendering owns every pixel; render the frame to
+    // inspect the universal-BG colour in the framebuffer.
+    ppu.renderFrame();
     // ABGR pack of (0xFF, 0x00, 0xFF) = 0xFFFF00FF.
     expect(ppu.framebuffer.data[0]).toBe(0xffff00ff);
   });
@@ -138,11 +145,14 @@ describe('PpuUltra register file: $2000 / $2006 / $2007', () => {
     ppu.cpuWrite(0x2006, 0x3f);
     ppu.cpuWrite(0x2006, 0x00);
     ppu.cpuWrite(0x2007, 0x05);
+    ppu.renderFrame();
     expect(ppu.framebuffer.data[0]).toBe(0xffff00ff); // magenta
 
     ppu.reset();
     expect(ppu.paletteRam[0]).toBe(0x00);
-    // After reset, BG is master[0] = black.
+    // reset() explicitly fills the framebuffer with the new bgColor
+    // (master[0] = black) so it's coherent for the next frame's
+    // per-scanline render.
     expect(ppu.framebuffer.data[0]).toBe(0xff000000);
   });
 });

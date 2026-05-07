@@ -208,6 +208,61 @@ describe('synthetic PonchoROM: single-sprite', () => {
   );
 });
 
+describe('synthetic PonchoROM: scanline-split', () => {
+  const path = testRomPath('poncho/scanline-split.poncho');
+
+  it.skipIf(!existsSync(path))(
+    'declares upscaled mode + 8 KB CHR-RAM',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const { header } = parsePonchoRom(data);
+      expect(header.flags.upscaledMode).toBe(true);
+      expect(header.chrRamKb).toBe(8);
+    },
+  );
+
+  it.skipIf(!existsSync(path))(
+    'palette change after sprite-0 hit applies to scanlines below the hit only',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const factory = detectConsole(data);
+      const console = factory!.create() as PonchoNes;
+      console.loadRom(data);
+
+      // Frame 0: PRG sets up tile + palette + OAM. Pre-render computes
+      // sprite-0 hit scanline = 32.
+      console.runFrame();
+      // Frame 1: visible scanlines 0..31 render with red ($3F01 = 1);
+      // sprite-0 hit fires at scanline 32; PRG poll exits and writes
+      // $3F01 = 2 (green); scanlines 32+ render with green.
+      const fb = console.runFrame();
+
+      const red = 0xff0000ff;
+      const green = 0xff00ff00;
+      const px = (y: number, x: number) => fb.data[y * 1024 + x];
+
+      // Top — render-state captured BEFORE PRG poll exits.
+      // (PRG poll exits a few CPU cycles after sprite-0 hit fires at NES
+      // scanline 32 dot 1; the palette write completes within the same
+      // scanline, so the render at end-of-scanline-32 picks up green.
+      // We assert tolerantly: top-of-frame red, bottom-of-frame green,
+      // with a small in-between window where the exact split lands.)
+      expect(px(0, 0)).toBe(red);
+      expect(px(0, 100)).toBe(red);
+      expect(px(31, 0)).toBe(red);
+      // NES scanline 31 (Poncho rows 124..127) finishes BEFORE the hit.
+      expect(px(124, 0)).toBe(red);
+      expect(px(127, 0)).toBe(red);
+
+      // Bottom — palette is green by these scanlines.
+      expect(px(800, 0)).toBe(green);
+      expect(px(800, 500)).toBe(green);
+      // Well-clear of the boundary — NES scanline 50+.
+      expect(px(200, 0)).toBe(green);
+    },
+  );
+});
+
 describe('synthetic PonchoROM: sprite0-hit', () => {
   const path = testRomPath('poncho/sprite0-hit.poncho');
 
