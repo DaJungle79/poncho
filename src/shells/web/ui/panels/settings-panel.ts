@@ -73,7 +73,7 @@ export class SettingsPanel implements Panel {
             <span>Overscan crop</span>
             <input type="checkbox" data-overscan />
           </label>
-          <div class="overscan-inputs" data-overscan-inputs>
+          <div class="overscan-inputs" data-overscan-inputs hidden>
             <label class="overscan-field">
               <span>Top</span>
               <input type="number" min="0" max="64" data-overscan-top />
