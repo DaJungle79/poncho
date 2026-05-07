@@ -39,6 +39,7 @@
  * the full frame timing loop.
  */
 
+import type { Mirroring } from '../cart/ines';
 import { createFrameBuffer, type FrameBuffer } from '../../renderer/frame-buffer';
 
 export const ULTRA_WIDTH = 1024;
@@ -72,8 +73,17 @@ export class PpuUltra {
   /** NES-shaped palette RAM (32 bytes). Each byte indexes the master palette. */
   readonly paletteRam = new Uint8Array(PALETTE_RAM_SIZE);
 
-  /** Two NES-shaped nametables (1 KB each = tiles + attribute table). */
+  /**
+   * Nametable VRAM. Two physical 1 KB pages (= two NES nametables) cover
+   * the four logical nametables ($2000/$2400/$2800/$2C00) under the
+   * usual horizontal/vertical mirroring schemes. Four-screen carts
+   * provide their own extra VRAM (handled in a future phase via the
+   * mapper); single-low / single-high collapse to one page.
+   */
   readonly nametableRam = new Uint8Array(NAMETABLE_RAM_SIZE);
+
+  /** Active nametable mirroring. Set by the composition from `mapper.mirroring()`. */
+  private nametableMirroring: Mirroring = 'horizontal';
 
   /**
    * Sprite RAM. 64 sprites × 8 bytes — y(16), x(16), tile(16), attr,
@@ -158,6 +168,16 @@ export class PpuUltra {
 
   setChr(chr: Uint8Array | null): void {
     this.chr = chr;
+  }
+
+  /**
+   * Configure how logical nametables ($2000/$2400/$2800/$2C00) map onto
+   * the two physical 1 KB nametable pages. Driven by `mapper.mirroring()`
+   * at cartridge load and updated whenever a runtime-configurable mapper
+   * (MMC1, AxROM) flips the mode.
+   */
+  setMirroring(m: Mirroring): void {
+    this.nametableMirroring = m;
   }
 
   setNmiCallback(cb: (() => void) | null): void {
@@ -341,25 +361,54 @@ export class PpuUltra {
     const sy = this.scrollY;
 
     if (this.showBackground) {
+      // Effective scroll combines PPUCTRL.baseNametable with the $2005
+      // scroll values: horizontally, NT0↔NT1 lay side-by-side at one
+      // SOURCE_WIDTH offset; vertically, NT0↔NT2 lay stacked at one
+      // SOURCE_HEIGHT offset. The full virtual BG plane is therefore
+      // 2 × SOURCE_WIDTH × 2 × SOURCE_HEIGHT (four logical nametables).
+      const baseNTH = this.baseNametable & 1;
+      const baseNTV = (this.baseNametable >> 1) & 1;
+      const virtualWidth  = SOURCE_WIDTH * 2;
+      const virtualHeight = SOURCE_HEIGHT * 2;
+      const effSx = (sx + baseNTH * SOURCE_WIDTH)  % virtualWidth;
+      const effSy = (sy + baseNTV * SOURCE_HEIGHT) % virtualHeight;
+      const mirroring = this.nametableMirroring;
+      const ntRam = this.nametableRam;
+
       // Per-pixel walk so scroll values that aren't tile-aligned still
       // fetch the correct source position. Inner loop caches the last
       // tile-column lookup so the cost stays tile-grained on average.
       for (let py = 0; py < ULTRA_HEIGHT; py++) {
-        const srcY = (py + sy) % SOURCE_HEIGHT;
+        const virtualY = (py + effSy) % virtualHeight;
+        const ntV = (virtualY / SOURCE_HEIGHT) | 0;       // 0 = NT0/NT1, 1 = NT2/NT3
+        const srcY = virtualY - ntV * SOURCE_HEIGHT;
         const tileRow = (srcY / TILE_PX) | 0;
         const tileSubY = srcY - tileRow * TILE_PX;
         let dst = py * width;
+        let lastNtH = -1;
         let lastTileCol = -1;
+        let physBase = 0;
         let tileBase = 0;
         let subPalette = 0;
         for (let px = 0; px < ULTRA_WIDTH; px++) {
-          const srcX = (px + sx) % SOURCE_WIDTH;
+          const virtualX = (px + effSx) % virtualWidth;
+          const ntH = (virtualX / SOURCE_WIDTH) | 0;     // 0 = NT0/NT2, 1 = NT1/NT3
+          const srcX = virtualX - ntH * SOURCE_WIDTH;
           const tileCol = (srcX / TILE_PX) | 0;
+          // When we cross a nametable boundary we have to refresh the
+          // physical-page base before re-reading tile + attribute.
+          if (ntH !== lastNtH) {
+            lastNtH = ntH;
+            lastTileCol = -1;
+            const logicalNT = ntV * 2 + ntH;
+            const physicalNT = resolvePhysicalNT(logicalNT, mirroring);
+            physBase = physicalNT * NAMETABLE_SIZE;
+          }
           if (tileCol !== lastTileCol) {
             lastTileCol = tileCol;
-            const tileIdx = this.nametableRam[tileRow * TILE_COLS + tileCol]!;
+            const tileIdx = ntRam[physBase + tileRow * TILE_COLS + tileCol]!;
             tileBase = tileIdx * TILE_BYTES;
-            const attrByte = this.nametableRam[960 + (tileRow >> 2) * 8 + (tileCol >> 2)]!;
+            const attrByte = ntRam[physBase + 960 + (tileRow >> 2) * 8 + (tileCol >> 2)]!;
             const attrShift = ((tileRow & 2) << 1) | (tileCol & 2);
             subPalette = (attrByte >> attrShift) & 0x3;
           }
@@ -429,12 +478,16 @@ export class PpuUltra {
       return;
     }
     if (addr >= 0x2000 && addr < 0x3000) {
-      // Single-screen mirroring at $2000 for now; horizontal/vertical
-      // mirroring lands when scrolling does.
-      this.nametableRam[addr & 0x07ff] = value;
+      // Logical nametable from PPU address: bits 10-11 select NT 0..3.
+      // The mirroring lookup folds it onto the two physical pages.
+      const logicalNT = (addr >> 10) & 0x3;
+      const physicalNT = resolvePhysicalNT(logicalNT, this.nametableMirroring);
+      const offset = physicalNT * NAMETABLE_SIZE + (addr & 0x03ff);
+      this.nametableRam[offset] = value;
       return;
     }
-    // CHR-RAM (writes below $2000) and other ranges are no-ops in the stub.
+    // CHR-RAM (writes below $2000) is routed through the cartridge
+    // mapper in Phase 4 of the v0.3.0 plan; for now stays a no-op.
   }
 
   /**
@@ -452,5 +505,24 @@ export class PpuUltra {
       this.bgColor = this.masterPalette[idx]!;
     }
     this.framebuffer.data.fill(this.bgColor);
+  }
+}
+
+/**
+ * Logical nametable (0–3 = NT0/1/2/3) → physical page (0–1) given the
+ * cart's mirroring mode. Two physical pages cover all four logical
+ * nametables in the standard horizontal / vertical / single-screen
+ * cases. Four-screen needs 4 KB of cart-supplied VRAM; until that lands
+ * we degrade to vertical (the most common iNES default for scrolling
+ * games — Contra ships vertical).
+ */
+export function resolvePhysicalNT(logicalNT: number, mirroring: Mirroring): 0 | 1 {
+  const lnt = logicalNT & 0x3;
+  switch (mirroring) {
+    case 'horizontal':  return ((lnt >> 1) & 1) as 0 | 1; // NT0,1 → 0; NT2,3 → 1
+    case 'vertical':    return (lnt & 1) as 0 | 1;        // NT0,2 → 0; NT1,3 → 1
+    case 'single-low':  return 0;
+    case 'single-high': return 1;
+    case 'four-screen': return (lnt & 1) as 0 | 1;        // TODO: full 4-screen via cart VRAM
   }
 }

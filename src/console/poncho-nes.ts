@@ -77,6 +77,7 @@ export class PonchoNes implements Console {
     this.cpuBus.setCartridge(cart);
     this.ppu.setMasterPalette(cart.palette);
     this.ppu.setChr(cart.chr);
+    this.ppu.setMirroring(cart.mapper.mirroring());
     this.reset();
   }
 

@@ -8,6 +8,13 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **Multi-nametable + mirroring (Phase 3 of v0.3.0)** —
+  - `PpuUltra.setMirroring(m)` configures the logical → physical nametable lookup; called by `PonchoNes.loadRom` from `cart.mapper.mirroring()`. Supported modes: horizontal, vertical, single-low, single-high. Four-screen falls back to vertical until cart-supplied 4 KB VRAM lands.
+  - `vramWrite` now respects the active mirroring: writes to `$2000-$2FFF` route to the correct physical page (NT0/NT1 or NT0/NT2 paired etc.) instead of the previous fixed alias.
+  - `renderFrame` walks a 2 × 2 virtual nametable grid (2048 × 1920 px source). PPUCTRL bits 0–1 (`baseNametable`) feed into the effective scroll, so games can flip the visible area between NT0/NT1/NT2/NT3 without poking $2005. Tile + attribute fetches re-base whenever the scan crosses a nametable boundary.
+  - Exported helper `resolvePhysicalNT(logicalNT, mirroring)` for tests + future bug triage.
+  - Synthetic test ROM [`multi-nametable.poncho`](tests/roms/poncho/multi-nametable.poncho) at [`scripts/gen-poncho-rom/multi-nametable.ts`](scripts/gen-poncho-rom/multi-nametable.ts): vertical mirroring, NROM-style banking, fills NT0 with tile 0 (red) and NT1 with tile 1 (green), sets PPUCTRL base NT = 1; the visible 1024 × 960 area shows green end-to-end.
+  - 11 new tests (4 unit for `resolvePhysicalNT`, 4 unit for $2007-write routing under each mirror mode, 3 integration for the synthetic ROM). Total: 319 passed, 1 skipped.
 - **PonchoMapper banking variants (Phase 2 of v0.3.0)** —
   - PonchoMapper now dispatches to a per-variant PRG-window strategy chosen at construction from the cartridge's `mapper_submode` low byte. NROM-style (variant 0, flat mirror) and UxROM-style (variant 2, 16 KB switchable @ $8000-$BFFF + fixed last bank @ $C000-$FFFF, bank-select on any write to $8000-$FFFF) implemented. MMC1 / CNROM / MMC3 / AxROM throw `not yet implemented` until Phase 8 lands them.
   - Bank index wraps modulo bank-count, so non-power-of-two PRG sizes (rare but legal) work.

@@ -208,6 +208,69 @@ describe('synthetic PonchoROM: single-sprite', () => {
   );
 });
 
+describe('synthetic PonchoROM: multi-nametable', () => {
+  const path = testRomPath('poncho/multi-nametable.poncho');
+
+  it.skipIf(!existsSync(path))(
+    'declares NROM banking + vertical mirroring',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const { header } = parsePonchoRom(data);
+      expect(header.flags.upscaledMode).toBe(false);
+      expect(decodeMapperSubmode(header.mapperSubmode)).toEqual({
+        bankingVariant: 0,
+        bootMirroring: 1,
+      });
+    },
+  );
+
+  it.skipIf(!existsSync(path))(
+    'PRG fills NT0 with tile 0 (red) and NT1 with tile 1 (green); base NT = 1 → screen is green',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const factory = detectConsole(data);
+      const console = factory!.create() as PonchoNes;
+      console.loadRom(data);
+
+      // Two frames: first one runs PRG (palette + nametable fills + base
+      // NT switch), second one renders the now-fully-configured state.
+      console.runFrame();
+      const fb = console.runFrame();
+
+      // ABGR pack of (R=0, G=255, B=0, A=255) = 0xFF00FF00.
+      const green = 0xff00ff00;
+      // Sample several screen-area pixels.
+      expect(fb.data[0 * 1024 + 0]).toBe(green);
+      expect(fb.data[100 * 1024 + 100]).toBe(green);
+      expect(fb.data[fb.data.length - 1]).toBe(green);
+
+      // And the universal-BG colour landed at $3F00 = master[0] = black.
+      expect(console.ppu.paletteRam[0]).toBe(0);
+    },
+  );
+
+  it.skipIf(!existsSync(path))(
+    'mapper.mirroring() is vertical and PpuUltra resolves NT1 to physical page 1',
+    () => {
+      const data = new Uint8Array(readFileSync(path));
+      const factory = detectConsole(data);
+      const console = factory!.create() as PonchoNes;
+      console.loadRom(data);
+      expect(console.cartridge!.mapper.mirroring()).toBe('vertical');
+
+      // After PRG runs, the two physical NT pages should hold distinct
+      // tile bytes: page 0 = tile 0, page 1 = tile 1.
+      console.runFrame();
+      const ntRam = console.ppu.nametableRam;
+      // First tile cell of physical page 0 was written via $2000.
+      expect(ntRam[0x000]).toBe(0);
+      // First tile cell of physical page 1 was written via $2400 — under
+      // vertical mirroring NT1 → physical 1 → offset 0x400.
+      expect(ntRam[0x400]).toBe(1);
+    },
+  );
+});
+
 describe('synthetic PonchoROM: uxrom-bankswitch', () => {
   const path = testRomPath('poncho/uxrom-bankswitch.poncho');
 
