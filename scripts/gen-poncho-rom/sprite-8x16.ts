@@ -126,7 +126,7 @@ function main(): void {
     chr: new Uint8Array(0),
     chrRamKb: 8,
     title: '8x16 sprite (synth)',
-    flags: { upscaledMode: true, trailerPresent: false },
+    flags: { upscaledMode: true, trailerPresent: false, aiCachePresent: false },
     mapperSubmode: encodeMapperSubmode({
       bankingVariant: 0,
       bootMirroring: 1,

@@ -150,7 +150,7 @@ function main(): void {
     prg,
     chr,
     title: 'Multi-NT (synthetic)',
-    flags: { upscaledMode: false, trailerPresent: false },
+    flags: { upscaledMode: false, trailerPresent: false, aiCachePresent: false },
     mapperSubmode: encodeMapperSubmode({
       bankingVariant: 0,  // NROM-style: flat PRG mirroring
       bootMirroring: 1,   // vertical: NT0/NT2 share, NT1/NT3 share

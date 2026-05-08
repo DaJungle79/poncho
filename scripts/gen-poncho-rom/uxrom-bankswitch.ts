@@ -108,7 +108,7 @@ function main(): void {
     prg,
     chr,
     title: 'UxROM Bankswitch (synthetic)',
-    flags: { upscaledMode: true, trailerPresent: false },
+    flags: { upscaledMode: true, trailerPresent: false, aiCachePresent: false },
     mapperSubmode: encodeMapperSubmode({
       bankingVariant: 2, // UxROM-style
       bootMirroring: 1,  // vertical (matches Contra's iNES setting)

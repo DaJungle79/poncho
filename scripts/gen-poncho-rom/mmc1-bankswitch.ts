@@ -103,7 +103,7 @@ function main(): void {
     prg,
     chr,
     title: 'MMC1 bankswitch',
-    flags: { upscaledMode: false, trailerPresent: false },
+    flags: { upscaledMode: false, trailerPresent: false, aiCachePresent: false },
     mapperSubmode: encodeMapperSubmode({
       bankingVariant: 1, // MMC1-style
       bootMirroring: 0,  // horizontal (default after reset; control $0C may override)

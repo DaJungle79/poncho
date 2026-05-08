@@ -126,7 +126,7 @@ export function convertInesToPoncho(
 
   const poncho = assemblePonchoRom({
     title: opts.title?.slice(0, 32) ?? '',
-    flags: { upscaledMode: true, trailerPresent: false },
+    flags: { upscaledMode: true, trailerPresent: false, aiCachePresent: false },
     mapperId: 1,
     mapperSubmode: encodeMapperSubmode({ bankingVariant: variant, bootMirroring }),
     chrRamKb,

@@ -153,7 +153,7 @@ describe('parsePonchoRom — happy path', () => {
 
     const h = parseHeader(buf);
     expect(h.version).toBe(PONCHO_VERSION);
-    expect(h.flags).toEqual({ upscaledMode: true, trailerPresent: true });
+    expect(h.flags).toEqual({ upscaledMode: true, trailerPresent: true, aiCachePresent: false });
     expect(h.prgSizeKb).toBe(0x1234);
     expect(h.chrSizeKb).toBe(0xdeadbeef);
     expect(h.paletteCount).toBe(0x0100);
@@ -172,15 +172,18 @@ describe('parsePonchoRom — happy path', () => {
     expect(parsePonchoRom(buildRom({ flags: 0b00 })).header.flags).toEqual({
       upscaledMode: false,
       trailerPresent: false,
+      aiCachePresent: false,
     });
-    expect(parsePonchoRom(buildRom({ flags: 0b01 })).header.flags).toEqual({
+    expect(parsePonchoRom(buildRom({ flags: 0b001 })).header.flags).toEqual({
       upscaledMode: true,
       trailerPresent: false,
+      aiCachePresent: false,
     });
-    expect(parsePonchoRom(buildRom({ flags: 0b10, trailerBytes: new Uint8Array([1, 2, 3]) }))
+    expect(parsePonchoRom(buildRom({ flags: 0b010, trailerBytes: new Uint8Array([1, 2, 3]) }))
       .header.flags).toEqual({
       upscaledMode: false,
       trailerPresent: true,
+      aiCachePresent: false,
     });
   });
 

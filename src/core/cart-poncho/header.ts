@@ -40,8 +40,17 @@ export interface PonchoFlags {
    * art-replaced ROMs leave it clear.
    */
   upscaledMode: boolean;
-  /** Bit 1: trailer block follows the CHR-ROM. */
+  /** Bit 1: trailer block follows the CHR-ROM (or AI cache if present). */
   trailerPresent: boolean;
+  /**
+   * Bit 2: an AI-upscaled-tile cache section sits between CHR and the
+   * trailer. The runtime preloads the section into an in-memory map
+   * keyed by tile-hash; when a CHR-RAM tile's hash matches a cached
+   * entry, the renderer paints the cached 32×32 native tile instead of
+   * the runtime nearest-neighbour upscale. See `ai-cache.ts` for the
+   * section layout.
+   */
+  aiCachePresent: boolean;
 }
 
 /**
@@ -111,6 +120,9 @@ export interface PonchoRomLayout {
   prgByteLength: number;
   chrOffset: number;
   chrByteLength: number;
+  /** 0 / 0 when `flags.aiCachePresent` is false. */
+  aiCacheOffset: number;
+  aiCacheByteLength: number;
   /** 0 / 0 when `flags.trailerPresent` is false. */
   trailerOffset: number;
   trailerByteLength: number;
@@ -159,6 +171,7 @@ export function parseHeader(data: Uint8Array): PonchoHeader {
   const flags: PonchoFlags = {
     upscaledMode:   (flagsByte & 0b0000_0001) !== 0,
     trailerPresent: (flagsByte & 0b0000_0010) !== 0,
+    aiCachePresent: (flagsByte & 0b0000_0100) !== 0,
   };
 
   const tvByte = view.getUint8(0x16);
@@ -206,10 +219,45 @@ export function parsePonchoRom(
     );
   }
 
+  // The AI cache section, if flagged, sits between CHR and trailer. Its
+  // self-describing length comes from reading its 12-byte sub-header
+  // (magic + version + model + entry-count). The trailer follows.
+  let aiCacheOffset = 0;
+  let aiCacheByteLength = 0;
+  if (header.flags.aiCachePresent) {
+    const sectionStart = chrOffset + chrByteLength;
+    if (data.length < sectionStart + 12) {
+      throw new PonchoRomError(
+        `AI cache section flagged but file is too short for its 12-byte header`,
+      );
+    }
+    // Verify magic 'AICH'.
+    if (
+      data[sectionStart + 0] !== 0x41 ||
+      data[sectionStart + 1] !== 0x49 ||
+      data[sectionStart + 2] !== 0x43 ||
+      data[sectionStart + 3] !== 0x48
+    ) {
+      throw new PonchoRomError(
+        `AI cache section magic mismatch (expected ASCII 'AICH' at offset 0x${sectionStart.toString(16)})`,
+      );
+    }
+    const view = new DataView(data.buffer, data.byteOffset + sectionStart, 12);
+    const entryCount = view.getUint32(8, true);
+    aiCacheOffset = sectionStart;
+    aiCacheByteLength = 12 + entryCount * 1056;
+    if (aiCacheOffset + aiCacheByteLength > data.length) {
+      throw new PonchoRomError(
+        `AI cache section: declares ${entryCount} entries (need ${aiCacheByteLength} bytes), ` +
+        `only ${data.length - aiCacheOffset} available`,
+      );
+    }
+  }
+
   let trailerOffset = 0;
   let trailerByteLength = 0;
   if (header.flags.trailerPresent) {
-    trailerOffset     = chrOffset + chrByteLength;
+    trailerOffset = chrOffset + chrByteLength + aiCacheByteLength;
     trailerByteLength = data.length - trailerOffset;
   }
 
@@ -231,6 +279,8 @@ export function parsePonchoRom(
     prgByteLength,
     chrOffset,
     chrByteLength,
+    aiCacheOffset,
+    aiCacheByteLength,
     trailerOffset,
     trailerByteLength,
   };

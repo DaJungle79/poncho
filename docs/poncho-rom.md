@@ -36,6 +36,9 @@ For an overview of how PonchoROM relates to the rest of the codebase, see [`cons
         | CHR-ROM                 |
         | (chr_size_kb × 1024 B)  |
         +-------------------------+
+        | AI cache (optional)     |
+        | (12 + N × 1056 B)       |
+        +-------------------------+
         | Trailer (optional)      |
         | (metadata, signature)   |
         +-------------------------+
@@ -49,7 +52,7 @@ All multi-byte integers are little-endian.
 |---|---|---|---|
 | 0x00 | 4 | `magic` | ASCII `PNCH` (0x50 0x4E 0x43 0x48) |
 | 0x04 | 1 | `version` | Format version. v1 = `0x01`. |
-| 0x05 | 1 | `flags` | Bit 0: upscaled mode (see below). Bit 1: trailer present. Bits 2–7 reserved (0). |
+| 0x05 | 1 | `flags` | Bit 0: upscaled mode (see below). Bit 1: trailer present. Bit 2: AI cache section present (see [AI cache](#ai-cache-section-optional)). Bits 3–7 reserved (0). |
 | 0x06 | 2 | `prg_size_kb` | PRG-ROM size in KB. Up to 65 535 KB (~64 MB). |
 | 0x08 | 4 | `chr_size_kb` | CHR-ROM size in KB. Up to ~4 GB (we won't hit this). |
 | 0x0C | 2 | `palette_count` | Number of master-palette entries (each entry = 4 B RGBA). 0 ≤ N ≤ 65 535. |
@@ -195,6 +198,48 @@ The converter at `scripts/poncho-convert.ts` (+ pure logic in `scripts/lib/ines-
 No PRG rewriting; no CHR upscaling at conversion time. The runtime does all per-pixel work natively. The conversion is therefore deterministic, fast, and reversible (the source CRC means tooling can verify which iNES a given `.poncho` came from).
 
 **Art replacement upgrade path.** A converted upscaled-mode ROM can be re-authored in stages: replace one tile bank's pixels with hand-drawn 32×32 8 bpp art, flip `flags.0` to 0 once all CHR + OAM + PRG conventions have been migrated. PRG rewriting is a separate, optional, post-MVP tool.
+
+## AI cache section (optional)
+
+When `flags.aiCachePresent` (bit 2) is set, an AI-upscaled-tile cache section sits between CHR and the trailer. Used by both v0.4 workflows:
+
+- **CHR-ROM bake-now** does not need it — fully upscaled CHR is embedded in the CHR section directly with `flags.upscaledMode = 0`.
+- **CHR-RAM lazy bake** populates it at runtime: as the AI worker delivers upscaled 32×32 tiles, the runtime writes them back to this section so the cartridge accumulates upgrades across play sessions.
+
+### Layout
+
+```
+0x00  4 bytes   magic 'AICH'  (0x41 0x49 0x43 0x48)
+0x04  2 bytes   format version (currently 1)
+0x06  2 bytes   model identifier:
+                  0    = unspecified
+                  1    = nanobanana / Gemini 2.5 Flash Image
+                  255  = nearest-neighbour (test fixtures, fallback)
+0x08  4 bytes   entry count N
+─── per entry (1056 bytes) ───
+  0x00  16 bytes   SHA-256-truncated-128 of (16-byte NES tile ++ 16-byte
+                   sub-palette indices). Lower-case hex of these 16 bytes
+                   is the cache key.
+  0x10  16 bytes   raw NES tile bytes (planar, plane 0 then plane 1).
+                   Verifier — if the cache became stale relative to
+                   current CHR content, a hash mismatch on lookup tells
+                   the runtime to re-upscale.
+  0x20  1024 bytes 32×32 8 bpp Poncho tile (row-major).
+```
+
+### Behaviour
+
+On cartridge load, `PonchoCartridge` parses the section into an in-memory `Map<hash, native-tile>`. The runtime checks this map per-tile during render — hits paint the AI-quality 32×32 tile directly; misses fall back to nearest-neighbour 4×4 expansion and queue the tile for the AI worker.
+
+On AI completion, the worker writes the result back into the cartridge's in-memory map and marks it dirty. Three triggers cause flush back to the `.poncho` file in the user's library:
+
+1. Cartridge unload (`PonchoNes.unload`, page beforeunload).
+2. Periodic 60 s flush if dirty.
+3. Manual "Save AI progress" button.
+
+### Stale entries
+
+If the user switches upscaler models, the runtime treats entries with a non-matching `model identifier` as cache misses (re-upscales). Old entries are NOT destructively purged — they survive in the file until overwritten by new ones. Toggling models doesn't lose work.
 
 ## Trailer (optional)
 

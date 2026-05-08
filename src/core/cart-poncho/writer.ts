@@ -9,6 +9,7 @@
  * field values.
  */
 
+import { aiCacheSectionLength, writeAiCacheSection, type AiCacheSection } from './ai-cache';
 import { crc32 } from './crc32';
 import {
   HEADER_SIZE,
@@ -43,6 +44,13 @@ export interface AssembleParts {
   prg: Uint8Array;
   /** CHR-ROM. Length must be a multiple of 1024. */
   chr: Uint8Array;
+  /**
+   * Optional AI cache section. When provided, sets `flags.aiCachePresent`
+   * and writes the serialised section between CHR and trailer. Each
+   * entry in the section is 1056 bytes (16-byte hash + 16-byte NES tile +
+   * 1024-byte upscaled tile) — see `ai-cache.ts`.
+   */
+  aiCache?: AiCacheSection;
   /** Optional trailer block. Implies `flags.trailerPresent` if present. */
   trailer?: Uint8Array;
 }
@@ -95,6 +103,21 @@ export function assemblePonchoRom(parts: AssembleParts): Uint8Array {
   const trailer      = parts.trailer ?? new Uint8Array(0);
   const trailerPresent = trailer.length > 0 || parts.flags?.trailerPresent === true;
 
+  // AI cache section: serialise once up-front so we know its size.
+  const aiCacheBytes = parts.aiCache
+    ? writeAiCacheSection(parts.aiCache)
+    : new Uint8Array(0);
+  const aiCachePresent = aiCacheBytes.length > 0 || parts.flags?.aiCachePresent === true;
+  if (aiCachePresent && aiCacheBytes.length === 0) {
+    throw new PonchoWriterError('flags.aiCachePresent set but no aiCache section provided');
+  }
+  if (parts.aiCache && aiCacheBytes.length !== aiCacheSectionLength(parts.aiCache.entries.length)) {
+    // Defensive — writeAiCacheSection should always produce the canonical size.
+    throw new PonchoWriterError(
+      `AI cache section size mismatch (got ${aiCacheBytes.length} bytes)`,
+    );
+  }
+
   if (paletteCount > 0xffff) {
     throw new PonchoWriterError(`palette has ${paletteCount} entries, max 65535`);
   }
@@ -110,6 +133,7 @@ export function assemblePonchoRom(parts: AssembleParts): Uint8Array {
     parts.palette.length +
     parts.prg.length +
     parts.chr.length +
+    aiCacheBytes.length +
     trailer.length;
 
   const out = new Uint8Array(totalSize);
@@ -124,7 +148,9 @@ export function assemblePonchoRom(parts: AssembleParts): Uint8Array {
   view.setUint8(0x04, PONCHO_VERSION);
   view.setUint8(
     0x05,
-    (parts.flags?.upscaledMode ? 0b01 : 0) | (trailerPresent ? 0b10 : 0),
+    (parts.flags?.upscaledMode ? 0b001 : 0) |
+    (trailerPresent             ? 0b010 : 0) |
+    (aiCachePresent             ? 0b100 : 0),
   );
   view.setUint16(0x06, prgSizeKb, true);
   view.setUint32(0x08, chrSizeKb, true);
@@ -139,11 +165,14 @@ export function assemblePonchoRom(parts: AssembleParts): Uint8Array {
   view.setUint32(0x1c, parts.sourceInesCrc32 ?? 0, true);
   out.set(titleBytes, 0x20);
 
-  // Body
+  // Body — order matches the file format: palette, PRG, CHR, AI cache, trailer.
   let cursor = HEADER_SIZE;
-  out.set(parts.palette, cursor); cursor += parts.palette.length;
-  out.set(parts.prg, cursor);     cursor += parts.prg.length;
-  out.set(parts.chr, cursor);     cursor += parts.chr.length;
+  out.set(parts.palette, cursor);   cursor += parts.palette.length;
+  out.set(parts.prg, cursor);       cursor += parts.prg.length;
+  out.set(parts.chr, cursor);       cursor += parts.chr.length;
+  if (aiCacheBytes.length > 0) {
+    out.set(aiCacheBytes, cursor);  cursor += aiCacheBytes.length;
+  }
   if (trailer.length > 0) out.set(trailer, cursor);
 
   // Body CRC

@@ -22,6 +22,7 @@
  *                                       both).
  */
 
+import { parseAiCacheSection, type AiCacheSection } from './ai-cache';
 import { decodeMapperSubmode, parsePonchoRom, type PonchoRomLayout } from './header';
 import { PonchoMapper } from '../mappers-poncho/poncho-mapper';
 import type { Mapper } from '../cart/mapper';
@@ -39,6 +40,14 @@ export class PonchoCartridge {
   /** True when `chr` is a writable CHR-RAM buffer rather than a file slice. */
   readonly chrIsRam: boolean;
   readonly mapper: Mapper;
+  /**
+   * Parsed AI cache section, when `flags.aiCachePresent` was set on the
+   * cartridge. Empty (`{ entries: [] }`-ish — actually `null`) for carts
+   * without one. The runtime uses this to seed its in-memory tile cache
+   * so previously-upscaled tiles render at full quality on cart load,
+   * before any AI worker activity.
+   */
+  readonly aiCache: AiCacheSection | null;
 
   constructor(data: Uint8Array, layout?: PonchoRomLayout) {
     this.layout = layout ?? parsePonchoRom(data);
@@ -61,6 +70,16 @@ export class PonchoCartridge {
         this.layout.chrOffset + this.layout.chrByteLength,
       );
       this.chrIsRam = false;
+    }
+
+    if (this.layout.header.flags.aiCachePresent && this.layout.aiCacheByteLength > 0) {
+      this.aiCache = parseAiCacheSection(
+        data,
+        this.layout.aiCacheOffset,
+        this.layout.aiCacheByteLength,
+      );
+    } else {
+      this.aiCache = null;
     }
 
     const submode = decodeMapperSubmode(this.layout.header.mapperSubmode);

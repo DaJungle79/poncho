@@ -140,7 +140,7 @@ function main(): void {
     chr: new Uint8Array(0),
     chrRamKb: 8,
     title: 'Scanline split (synth)',
-    flags: { upscaledMode: true, trailerPresent: false },
+    flags: { upscaledMode: true, trailerPresent: false, aiCachePresent: false },
     mapperSubmode: encodeMapperSubmode({
       bankingVariant: 0,
       bootMirroring: 1,
