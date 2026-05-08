@@ -6,13 +6,21 @@ This doc is intentionally informal and freely edited. Order inside each section 
 
 ---
 
-## Near-term — v0.4.0 plan
+## Near-term — v0.4.0 plan: AI upscaling
 
-The next release focuses on validating the v0.3 runtime + converter against a wider library of games and locking results into a regression suite. Detailed phases live in [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md):
+The next release replaces the runtime's nearest-neighbour CHR upscaling with AI-generated 32×32 8 bpp tiles via the nanobanana (Gemini 2.5 Flash Image) API. Detailed phases live in [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md):
 
-- **Game-by-game validation** — Donkey Kong, SMB, Mega Man 2, Castlevania, Battletoads, SMB3 (MMC3 IRQ stress), Final Fantasy / Zelda (battery save). Each game ships with a frame-N screenshot baseline.
-- **Headless regression harness** — `npm run test:games` converts each curated iNES → `.poncho`, runs N frames, PNG-diffs against baseline. CI-friendly.
-- **AI-driven CHR upscaling** — pre-pass in the converter that replaces 4×4 nearest-neighbour CHR with model output. Format flag flips to `upscaledMode=0` (CHR pre-baked, no runtime upscale). For CHR-RAM games, capture states via offline emulation and bake them as Poncho-CHR banks.
+- **Conversion-time pipeline (CHR-ROM games)** — pre-bake AI-upscaled tiles into the `.poncho` file with a progress UI. Output is native-mode CHR; the runtime stays unchanged.
+- **Runtime hooks (CHR-RAM games)** — PpuUltra/PonchoMapper get per-tile mode bridging: AI-upgraded tiles render at full quality, the rest fall back to the v0.3 nearest-neighbour 4×4 path. AI runs in a Web Worker with aggressive caching.
+- **Tile cache** — global SHA-1-keyed cache (IndexedDB / on-disk for CLI) so tiles encountered in multiple ROMs upscale once.
+
+## v0.5.0 — Game-by-game validation
+
+After AI upscaling lands, [`docs/v0.5.0-plan.md`](docs/v0.5.0-plan.md) covers:
+
+- Validating the stack against Donkey Kong, SMB, MM2, Castlevania, Battletoads, SMB3, Final Fantasy
+- Headless regression harness (`npm run test:games`)
+- README + docs polish with screenshots from working games
 
 ## Other work — not on the v0.4 critical path
 

@@ -7,7 +7,7 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
-_Nothing yet — see [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md) for what's next._
+_Nothing yet. Next release will be v0.4.0 — AI-driven CHR upscaling via the nanobanana API; see [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md). Game-by-game validation + regression harness moved to [`docs/v0.5.0-plan.md`](docs/v0.5.0-plan.md)._
 
 ## [0.3.0] — 2026-05-07
 
