@@ -211,6 +211,23 @@ export async function hashTile(
   return hashToHex(digestBytes.subarray(0, 16));
 }
 
+/**
+ * Synchronous variant of `hashTile`. Always uses the pure-JS SHA-256
+ * fallback (Web Crypto's `subtle.digest` is async-only and can't be
+ * invoked from the render hot path). Slower than `hashTile`, but the
+ * runtime only hashes on cache misses + at write-back time, so the cost
+ * is amortised.
+ */
+export function hashTileSync(
+  nesTile: Uint8Array,
+  subPalette: Uint8Array,
+): TileHashHex {
+  const buf = new Uint8Array(nesTile.length + subPalette.length);
+  buf.set(nesTile, 0);
+  buf.set(subPalette, nesTile.length);
+  return hashToHex(sha256Sync(buf).subarray(0, 16));
+}
+
 /** Convert a 16-byte hash to a 32-char lowercase hex string. */
 export function hashToHex(bytes: Uint8Array): TileHashHex {
   let s = '';

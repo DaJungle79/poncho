@@ -173,6 +173,30 @@ export class PpuUltra {
   /** Selects the upscaled (NES-format) render path; cleared = native 32×32 8bpp. */
   private upscaledMode = false;
 
+  /**
+   * Per-tile native upscale resolver (Phase 3 of v0.4). When set, the
+   * upscaled-mode BG render asks the resolver — with a snapshot of the
+   * tile's 16 raw NES bytes and its 4-byte sub-palette — whether an
+   * AI-upscaled 32×32 8 bpp native tile is available. If so, the tile
+   * is painted from the native bytes (1 native px ↔ 1 Poncho px); if
+   * not, the renderer falls back to the existing 4×4 nearest-neighbour
+   * expansion *for that tile this frame only*. The resolver typically
+   * also schedules an async fetch on miss so the next frame can hit.
+   *
+   * Returning a null/short array means "no tile available now" — the
+   * NN path takes over without further work.
+   *
+   * Per-tile granularity: a single frame can mix native and NN tiles
+   * pixel-by-pixel, so the framebuffer becomes incrementally AI-correct
+   * as the worker delivers tiles.
+   */
+  private upscaledTileResolver:
+    | ((nesTile: Uint8Array, subPalette: Uint8Array) => Uint8Array | null)
+    | null = null;
+  /** Scratch buffer reused across resolver calls to avoid per-tile allocs. */
+  private readonly resolverTileScratch = new Uint8Array(16);
+  private readonly resolverPalScratch = new Uint8Array(4);
+
   /** Universal-BG colour, cached so empty/no-CHR frames stay cheap. */
   private bgColor = 0xff000000;
 
@@ -227,6 +251,16 @@ export class PpuUltra {
 
   setChrWriter(writer: ((addr: number, value: number) => void) | null): void {
     this.chrWriter = writer;
+  }
+
+  /**
+   * Install the AI tile resolver. `null` disables the upscale path —
+   * the renderer reverts to pure 4× nearest-neighbour expansion.
+   */
+  setUpscaledTileResolver(
+    fn: ((nesTile: Uint8Array, subPalette: Uint8Array) => Uint8Array | null) | null,
+  ): void {
+    this.upscaledTileResolver = fn;
   }
 
   setNmiCallback(cb: (() => void) | null): void {
@@ -657,12 +691,20 @@ export class PpuUltra {
     const tileRow = (localNesY / 8) | 0;
     const tileLocalY = localNesY & 7;
 
+    const resolver = this.upscaledTileResolver;
+    const tileScratch = this.resolverTileScratch;
+    const palScratch = this.resolverPalScratch;
+
     let lastNtH = -1;
     let lastTileCol = -1;
     let physBase = 0;
     let plane0 = 0;
     let plane1 = 0;
     let subPalette = 0;
+    /** Native upscaled tile for the current tileCol, or null = use NN. */
+    let nativeTile: Uint8Array | null = null;
+    /** Pre-computed framebuffer-row-byte offsets into the native tile. */
+    let nativeRow0 = 0, nativeRow1 = 0, nativeRow2 = 0, nativeRow3 = 0;
 
     // Walk the row of NES pixels (256 wide). Each NES px becomes a 4×4
     // block in 4 Poncho rows. The inner 4-by-4 fill is unrolled.
@@ -689,6 +731,56 @@ export class PpuUltra {
         const attrByte = ntRam[physBase + 960 + (tileRow >> 2) * 8 + (tileCol >> 2)]!;
         const attrShift = ((tileRow & 2) << 1) | (tileCol & 2);
         subPalette = (attrByte >> attrShift) & 0x3;
+
+        nativeTile = null;
+        if (resolver) {
+          // Snapshot the full 16 NES tile bytes + 4-byte sub-palette and
+          // hand them to the resolver. On hit we render from native; on
+          // miss the resolver schedules an async fetch and we fall back
+          // to NN for this tile this frame.
+          for (let k = 0; k < 8; k++) {
+            tileScratch[k] = reader(baseAddr + k) & 0xff;
+            tileScratch[k + 8] = reader(baseAddr + 8 + k) & 0xff;
+          }
+          palScratch[0] = pal[0]!;                  // universal-BG
+          palScratch[1] = pal[subPalette * 4 + 1]!;
+          palScratch[2] = pal[subPalette * 4 + 2]!;
+          palScratch[3] = pal[subPalette * 4 + 3]!;
+          const native = resolver(tileScratch, palScratch);
+          if (native && native.length === 1024) {
+            nativeTile = native;
+            const upY = tileLocalY * 4;
+            nativeRow0 = upY * 32;
+            nativeRow1 = nativeRow0 + 32;
+            nativeRow2 = nativeRow1 + 32;
+            nativeRow3 = nativeRow2 + 32;
+          }
+        }
+      }
+
+      const ponchoX0 = nesX * 4;
+      const r0 = ponchoRowBase + ponchoX0;
+      const r1 = r0 + width;
+      const r2 = r1 + width;
+      const r3 = r2 + width;
+
+      if (nativeTile !== null) {
+        // Native path: per-Poncho-pixel palette lookup. Same pv→color
+        // mapping as NN, so the runtime palette still drives final RGBA;
+        // the AI tile only contributes shape (pv 0..3 per native px).
+        const colBase = tileLocalX * 4;
+        for (let dx = 0; dx < 4; dx++) {
+          const c = colBase + dx;
+          const pv0 = nativeTile[nativeRow0 + c]! & 3;
+          const pv1 = nativeTile[nativeRow1 + c]! & 3;
+          const pv2 = nativeTile[nativeRow2 + c]! & 3;
+          const pv3 = nativeTile[nativeRow3 + c]! & 3;
+          fb[r0 + dx] = pv0 === 0 ? universalBg : master[pal[subPalette * 4 + pv0]! % masterLen]!;
+          fb[r1 + dx] = pv1 === 0 ? universalBg : master[pal[subPalette * 4 + pv1]! % masterLen]!;
+          fb[r2 + dx] = pv2 === 0 ? universalBg : master[pal[subPalette * 4 + pv2]! % masterLen]!;
+          fb[r3 + dx] = pv3 === 0 ? universalBg : master[pal[subPalette * 4 + pv3]! % masterLen]!;
+        }
+        continue;
       }
 
       const bit = 7 - tileLocalX;
@@ -701,11 +793,6 @@ export class PpuUltra {
         color = master[idx]!;
       }
 
-      const ponchoX0 = nesX * 4;
-      const r0 = ponchoRowBase + ponchoX0;
-      const r1 = r0 + width;
-      const r2 = r1 + width;
-      const r3 = r2 + width;
       fb[r0] = color; fb[r0 + 1] = color; fb[r0 + 2] = color; fb[r0 + 3] = color;
       fb[r1] = color; fb[r1 + 1] = color; fb[r1 + 2] = color; fb[r1 + 3] = color;
       fb[r2] = color; fb[r2 + 1] = color; fb[r2 + 2] = color; fb[r2 + 3] = color;

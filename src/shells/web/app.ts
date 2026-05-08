@@ -14,6 +14,9 @@
 import { Nes } from '../../console/nes';
 import { PonchoNes } from '../../console/poncho-nes';
 import { ALL_SPECS, NES_SPEC, PONCHO_NES_SPEC } from '../../console/specs';
+import { repackPonchoWithAiCache } from '../../core/cart-poncho/repack';
+import { MockUpscaleClient, NanoBananaClient } from '../../convert/upscale-client';
+import { UpscaleWorker } from '../../runtime/upscale-worker';
 import type { ConsoleSpec } from '../../console/console';
 import { KeyboardSource } from '../../core/input/keyboard-source';
 import { ConfigStore } from '../../config/store';
@@ -79,6 +82,16 @@ export class App {
   private readonly dom: AppDom;
   private readonly gameTitleNameEl: HTMLHeadingElement;
   private readonly gameTitleSubEl: HTMLParagraphElement;
+
+  // ----- Runtime AI upscale (Phase 3 of v0.4) -----------------------------
+  /** Active CHR-RAM upscale worker. Null when the loaded cart isn't eligible. */
+  private aiWorker: UpscaleWorker | null = null;
+  /** Latest `.poncho` bytes for the running cart, for write-back. */
+  private aiCartBytes: Uint8Array | null = null;
+  /** ROM library key for write-back. Null skips persistence. */
+  private aiCartName: string | null = null;
+  /** 60 s flush handle. */
+  private aiFlushTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly platform: Platform,
@@ -260,8 +273,11 @@ export class App {
   // ----- Lifecycle helpers --------------------------------------------------
 
   private async loadRom(rom: LoadedRom): Promise<void> {
+    // Tear down any prior cart's upscale worker, flushing one last time.
+    await this.teardownAiWorker();
     try {
       this.nes.loadRom(rom.data);
+      this.maybeStartAiWorker(rom);
       this.powered = true;
       this.paused = false;
       this.config.update((c) => ({ ...c, general: { ...c.general, lastRomUrl: rom.source } }));
@@ -301,6 +317,7 @@ export class App {
       );
     } else {
       this.powered = false;
+      void this.teardownAiWorker();
       this.nes.unload();
       void this.platform.audio.stop();
       this.setStatus('Powered off.');
@@ -392,6 +409,111 @@ export class App {
 
   private applyStatusBar(visible: boolean): void {
     document.documentElement.dataset.statusBar = visible ? 'visible' : 'hidden';
+  }
+
+  // ----- AI upscale worker lifecycle ----------------------------------------
+
+  /**
+   * Spin up the runtime upscale worker iff:
+   *   - we're on Poncho-NES,
+   *   - the cart is upscaled-mode + CHR-RAM (CHR-ROM games are baked
+   *     ahead of time via `convertInesToPonchoAi`; the runtime worker
+   *     would have nothing to do).
+   *
+   * Wires the worker as PpuUltra's tile resolver, kicks off a 60 s
+   * periodic flush, and remembers the cart's source-of-truth bytes for
+   * later write-back. Best-effort — any failure is swallowed; AI just
+   * doesn't engage.
+   */
+  private maybeStartAiWorker(rom: LoadedRom): void {
+    if (!(this.nes instanceof PonchoNes)) return;
+    const cart = this.nes.cartridge;
+    if (!cart) return;
+    if (!cart.layout.header.flags.upscaledMode) return;
+    if (!cart.chrIsRam) return;
+
+    const apiKey = (window as unknown as { PONCHO_GEMINI_API_KEY?: string }).PONCHO_GEMINI_API_KEY;
+    let client;
+    try {
+      client = apiKey ? new NanoBananaClient({ apiKey }) : new MockUpscaleClient();
+    } catch (err) {
+      log.warn('rom', 'AI client init failed; runtime upscale disabled.', err);
+      return;
+    }
+
+    const worker = new UpscaleWorker({
+      client,
+      seed: cart.aiCache,
+      // Note: PpuUltra renders every frame anyway, so we don't strictly
+      // need the onTileReady hook — the next frame picks up the tile
+      // automatically. Hook left null to avoid extra invalidation work.
+    });
+    this.aiWorker = worker;
+    this.aiCartBytes = rom.data;
+    this.aiCartName = this.shouldPersistAiCache(rom) ? rom.name : null;
+
+    this.nes.ppu.setUpscaledTileResolver((nesTile, subPalette) =>
+      worker.resolveSync(nesTile, subPalette));
+
+    // Periodic flush — every 60 s. Plan calls this out as one of three
+    // write-back triggers (the others: cart unload + manual button).
+    if (this.aiFlushTimer) clearInterval(this.aiFlushTimer);
+    this.aiFlushTimer = setInterval(() => { void this.flushAiCache(); }, 60_000);
+  }
+
+  /**
+   * Final flush + cleanup. Called from `loadRom` (before installing a
+   * new cart), `togglePower` (eject), and `selectConsole` (which itself
+   * calls togglePower first).
+   */
+  private async teardownAiWorker(): Promise<void> {
+    if (this.aiFlushTimer) {
+      clearInterval(this.aiFlushTimer);
+      this.aiFlushTimer = null;
+    }
+    if (this.aiWorker) {
+      await this.flushAiCache();
+      this.aiWorker = null;
+    }
+    this.aiCartBytes = null;
+    this.aiCartName = null;
+    if (this.nes instanceof PonchoNes) {
+      this.nes.ppu.setUpscaledTileResolver(null);
+    }
+  }
+
+  /**
+   * Snapshot the worker's current entries, repack the `.poncho` bytes
+   * with the merged AI cache, and persist back into the ROM library.
+   * No-ops when the worker is clean or the cart isn't eligible for
+   * persistence (e.g. server ROMs).
+   */
+  private async flushAiCache(): Promise<void> {
+    const worker = this.aiWorker;
+    const bytes = this.aiCartBytes;
+    const name = this.aiCartName;
+    if (!worker || !bytes || !name) return;
+    if (!worker.isDirty()) return;
+
+    try {
+      const section = worker.toSection();
+      const updated = repackPonchoWithAiCache(bytes, section);
+      await this.platform.romLibrary.add(name, updated);
+      this.aiCartBytes = updated;
+      worker.clearDirty();
+      log.info('rom', `Wrote AI cache (${section.entries.length} tiles) to ${name}`);
+    } catch (err) {
+      log.warn('rom', 'AI cache write-back failed; will retry on next flush.', err);
+    }
+  }
+
+  /**
+   * Persistence policy: write back to ROM library only for sources that
+   * imply browser-storage ownership. Server-loaded ROMs would otherwise
+   * silently materialise as library entries — surprising.
+   */
+  private shouldPersistAiCache(rom: LoadedRom): boolean {
+    return rom.source.startsWith('browser:') || rom.source.startsWith('file:');
   }
 }
 
