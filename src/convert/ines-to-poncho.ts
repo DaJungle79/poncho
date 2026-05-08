@@ -70,8 +70,11 @@ export interface ConvertResult {
  * iNES mapper id → PonchoMapper banking variant. The numbers match by
  * convention so the mapper-submode field reads the same as the source
  * iNES mapper number.
+ *
+ * Exported so the AI converter (`ines-to-poncho-ai.ts`) shares the same
+ * mapping rules.
  */
-const MAPPER_TO_VARIANT: Record<number, BankingVariant> = {
+export const MAPPER_TO_VARIANT: Record<number, BankingVariant> = {
   0: 0, // NROM
   1: 1, // MMC1
   2: 2, // UxROM
@@ -80,13 +83,13 @@ const MAPPER_TO_VARIANT: Record<number, BankingVariant> = {
   7: 7, // AxROM
 };
 
-const MIRRORING_TO_BOOT: Record<string, BootMirroring> = {
+export const MIRRORING_TO_BOOT: Record<string, BootMirroring> = {
   'horizontal': 0,
   'vertical': 1,
   'four-screen': 2,
 };
 
-const SUPPORTED_MAPPER_NAMES = 'NROM (0), MMC1 (1), UxROM (2), CNROM (3), MMC3 (4), AxROM (7)';
+export const SUPPORTED_MAPPER_NAMES = 'NROM (0), MMC1 (1), UxROM (2), CNROM (3), MMC3 (4), AxROM (7)';
 
 export function convertInesToPoncho(
   inesBytes: Uint8Array,

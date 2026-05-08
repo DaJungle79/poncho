@@ -3,6 +3,12 @@ import type { Panel } from '../panel-stack';
 import type { FilePicker, RomLibrary, ServerRomLoader } from '../../../../platform/types';
 import type { LoadedRom, StoredRomEntry } from '../../../../domain/rom';
 import { ConvertError, convertInesToPoncho } from '../../../../convert/ines-to-poncho';
+import {
+  AiConvertCancelled,
+  convertInesToPonchoAi,
+  type AiConvertProgress,
+} from '../../../../convert/ines-to-poncho-ai';
+import { MockUpscaleClient, NanoBananaClient } from '../../../../convert/upscale-client';
 
 export interface RomsPanelDeps {
   /** Persistent local library — uploaded ROMs (web: IndexedDB). */
@@ -44,6 +50,8 @@ export class RomsPanel implements Panel {
   private readonly btnUpload: HTMLButtonElement;
   private readonly uploadLabel: HTMLSpanElement;
   private readonly btnConvert: HTMLButtonElement;
+  private readonly aiToggleWrap: HTMLLabelElement;
+  private readonly aiCheckbox: HTMLInputElement;
   private consoleId = 'nes';
 
   constructor(private readonly deps: RomsPanelDeps) {
@@ -67,6 +75,10 @@ export class RomsPanel implements Panel {
               <span>Convert .nes</span>
             </button>
           </div>
+          <label class="rom-ai-toggle" data-ai-toggle hidden>
+            <input type="checkbox" data-ai-checkbox>
+            <span>Use AI upscale (CHR-ROM games only)</span>
+          </label>
         </section>
 
         <section class="rom-section" data-server-section>
@@ -89,6 +101,8 @@ export class RomsPanel implements Panel {
     this.btnUpload = this.root.querySelector<HTMLButtonElement>('[data-upload]')!;
     this.uploadLabel = this.root.querySelector<HTMLSpanElement>('[data-upload-label]')!;
     this.btnConvert = this.root.querySelector<HTMLButtonElement>('[data-convert]')!;
+    this.aiToggleWrap = this.root.querySelector<HTMLLabelElement>('[data-ai-toggle]')!;
+    this.aiCheckbox = this.root.querySelector<HTMLInputElement>('[data-ai-checkbox]')!;
 
     // Hide the Server section on platforms that have no dev-server-style
     // ROM loader (e.g. Electron). The platform passes `serverRoms: null`
@@ -115,6 +129,7 @@ export class RomsPanel implements Panel {
     // bridge an iNES file into the Poncho-NES library by wrapping it
     // as an upscaled-mode `.poncho` cartridge.
     this.btnConvert.hidden = consoleId !== 'poncho-nes';
+    this.aiToggleWrap.hidden = consoleId !== 'poncho-nes';
   }
 
   private setStatus(text: string): void {
@@ -299,9 +314,42 @@ export class RomsPanel implements Panel {
     }
 
     const baseTitle = picked.name.replace(/\.nes$/i, '').replace(/\s*\([^)]*\)/g, '').trim();
-    let result;
+    const useAi = this.aiCheckbox.checked;
+    // CHR-RAM detection: iNES byte 5 = 0 means the cart has CHR-RAM, not
+    // CHR-ROM. CHR-RAM games can't be baked at conversion time — they go
+    // through the runtime upscale path instead.
+    const isChrRam = picked.data[5] === 0;
+
+    let resultPoncho: Uint8Array;
+    let summary: string;
     try {
-      result = convertInesToPoncho(picked.data, { title: baseTitle });
+      if (useAi && isChrRam) {
+        // CHR-RAM game with AI requested — convert without AI here, the
+        // runtime AI worker (Phase 3) handles upscaling during play.
+        const result = convertInesToPoncho(picked.data, { title: baseTitle });
+        resultPoncho = result.poncho;
+        summary =
+          `(mapper ${result.notes.sourceMapper}, CHR-RAM ${result.notes.chrRamKb} KB; ` +
+          `AI upscale will run during play)`;
+      } else if (useAi) {
+        // CHR-ROM bake-now: show progress modal.
+        const aiResult = await this.runAiConvert(picked.data, baseTitle);
+        if (!aiResult) {
+          this.setStatus('AI conversion cancelled.');
+          return;
+        }
+        resultPoncho = aiResult.poncho;
+        const n = aiResult.notes;
+        summary =
+          `(mapper ${n.sourceMapper}, native CHR ${n.chrKb} KB, ` +
+          `${n.uniqueTiles} unique tiles, ${n.failedTiles} fallbacks)`;
+      } else {
+        const result = convertInesToPoncho(picked.data, { title: baseTitle });
+        resultPoncho = result.poncho;
+        const n = result.notes;
+        const chrLabel = n.chrRamKb > 0 ? `CHR-RAM ${n.chrRamKb} KB` : `CHR ${n.chrKb} KB`;
+        summary = `(mapper ${n.sourceMapper}, ${chrLabel}, PRG ${n.prgKb} KB)`;
+      }
     } catch (err) {
       if (err instanceof ConvertError) {
         this.setStatus(`Conversion failed: ${err.message}`);
@@ -313,20 +361,98 @@ export class RomsPanel implements Panel {
 
     const ponchoName = picked.name.replace(/\.nes$/i, '') + '.poncho';
     try {
-      await this.deps.romLibrary.add(ponchoName, result.poncho);
+      await this.deps.romLibrary.add(ponchoName, resultPoncho);
       await this.refreshBrowserList();
     } catch (err) {
       this.setStatus(`Saved-to-library failed: ${(err as Error).message}`);
       return;
     }
 
-    const { notes } = result;
-    const chrLabel = notes.chrRamKb > 0 ? `CHR-RAM ${notes.chrRamKb} KB` : `CHR ${notes.chrKb} KB`;
-    this.setStatus(
-      `Converted ${picked.name} → ${ponchoName} ` +
-      `(mapper ${notes.sourceMapper}, ${chrLabel}, PRG ${notes.prgKb} KB)`,
-    );
+    this.setStatus(`Converted ${picked.name} → ${ponchoName} ${summary}`);
   }
+
+  /**
+   * Run the AI bake-now pipeline behind a modal progress dialog. Returns
+   * `null` if the user cancelled. Picks the right upscale client based
+   * on whether a Gemini API key is configured (window-scoped for now —
+   * a settings panel field is a Phase 4 polish item).
+   */
+  private async runAiConvert(
+    inesBytes: Uint8Array,
+    baseTitle: string,
+  ): Promise<Awaited<ReturnType<typeof convertInesToPonchoAi>> | null> {
+    const apiKey = (window as unknown as { PONCHO_GEMINI_API_KEY?: string }).PONCHO_GEMINI_API_KEY;
+    const client = apiKey
+      ? new NanoBananaClient({ apiKey })
+      : new MockUpscaleClient();
+
+    const modal = createAiProgressModal(apiKey ? 'Gemini 2.5 Flash Image' : 'Nearest-neighbour (no API key)');
+    document.body.appendChild(modal.root);
+
+    const ctrl = new AbortController();
+    modal.onCancel(() => ctrl.abort());
+
+    try {
+      const result = await convertInesToPonchoAi(inesBytes, {
+        title: baseTitle,
+        client,
+        signal: ctrl.signal,
+        onProgress: (p) => modal.update(p),
+      });
+      modal.complete();
+      return result;
+    } catch (err) {
+      if (err instanceof AiConvertCancelled) return null;
+      throw err;
+    } finally {
+      modal.root.remove();
+    }
+  }
+}
+
+/**
+ * Lightweight modal with a progress bar + counter + cancel button. Built
+ * inline rather than as a generic dialog component — it's the only modal
+ * in the shell so far and a shared abstraction is premature.
+ */
+function createAiProgressModal(modelLabel: string): {
+  root: HTMLElement;
+  update(p: AiConvertProgress): void;
+  complete(): void;
+  onCancel(fn: () => void): void;
+} {
+  const root = document.createElement('div');
+  root.className = 'ai-progress-overlay';
+  root.innerHTML = `
+    <div class="ai-progress-card">
+      <h3>AI upscale in progress</h3>
+      <p class="ai-progress-model">Model: <span data-model></span></p>
+      <div class="ai-progress-bar"><div class="ai-progress-fill" data-fill></div></div>
+      <p class="ai-progress-count" data-count>0 / 0 tiles</p>
+      <button type="button" class="ai-progress-cancel" data-cancel>Cancel</button>
+    </div>
+  `;
+  root.querySelector<HTMLSpanElement>('[data-model]')!.textContent = modelLabel;
+  const fill = root.querySelector<HTMLElement>('[data-fill]')!;
+  const count = root.querySelector<HTMLElement>('[data-count]')!;
+  const cancel = root.querySelector<HTMLButtonElement>('[data-cancel]')!;
+  let cancelHandler: (() => void) | null = null;
+  cancel.addEventListener('click', () => cancelHandler?.());
+
+  return {
+    root,
+    update(p) {
+      const pct = p.total === 0 ? 100 : Math.floor((p.done / p.total) * 100);
+      fill.style.width = `${pct}%`;
+      count.textContent = `${p.done} / ${p.total} tiles · ${p.cached} cached · ${p.failed} fallbacks`;
+    },
+    complete() {
+      fill.style.width = '100%';
+      cancel.disabled = true;
+      cancel.textContent = 'Done';
+    },
+    onCancel(fn) { cancelHandler = fn; },
+  };
 }
 
 function formatSize(bytes: number): string {

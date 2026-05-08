@@ -7,7 +7,20 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
-_Nothing yet. Next release will be v0.4.0 — AI-driven CHR upscaling via the nanobanana API; see [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md). Game-by-game validation + regression harness moved to [`docs/v0.5.0-plan.md`](docs/v0.5.0-plan.md)._
+In progress — v0.4.0 (AI-driven CHR upscaling via nanobanana / Gemini 2.5 Flash Image). See [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md). Game-by-game validation + regression harness moved to [`docs/v0.5.0-plan.md`](docs/v0.5.0-plan.md).
+
+### Added — v0.4 Phase 1: foundation
+
+- **PonchoROM AI cache section** (optional, gated by header flag bit 2: `flags.aiCachePresent`). 12-byte sub-header (`AICH` magic + format version + model id + entry count) followed by N × 1056-byte entries (16-byte palette-aware hash + 16-byte source NES tile + 1024-byte upscaled native tile). [`src/core/cart-poncho/ai-cache.ts`](src/core/cart-poncho/ai-cache.ts) implements parser + writer; [`PonchoCartridge`](src/core/cart-poncho/cartridge.ts) loads it on construction. Format spec in [`docs/poncho-rom.md`](docs/poncho-rom.md).
+- **Tile cache** ([`src/convert/tile-cache.ts`](src/convert/tile-cache.ts)) — three-tier lookup (per-cart `FileTileCache` → cross-cart `GlobalTileCache` → `UpscaleClient`) with promotion on hit. SHA-256-truncated-128 palette-aware tile hashing via Web Crypto, with a pure-JS RFC 6234 fallback. Model-id mismatched entries are treated as cache misses (not destructively purged) so the on-disk cache is preserved when the user switches upscalers.
+- **Upscale client interface** ([`src/convert/upscale-client.ts`](src/convert/upscale-client.ts)) — `UpscaleClient` boundary with two implementations: `MockUpscaleClient` (deterministic 4× nearest-neighbour, used by tests + as the no-key fallback) and `NanoBananaClient` (Phase 1: stub).
+
+### Added — v0.4 Phase 2: CHR-ROM bake-now pipeline
+
+- **`convertInesToPonchoAi`** ([`src/convert/ines-to-poncho-ai.ts`](src/convert/ines-to-poncho-ai.ts)) — high-level converter for CHR-ROM cartridges. Dedupes tiles by content hash, pumps unique tiles through the cache layers with bounded concurrency (default 4), reassembles CHR with each NES tile replaced by its 1024-byte upscaled native counterpart, and emits a native-mode `.poncho`. Per-tile API failures fall back to nearest-neighbour so a flaky network doesn't fail the whole conversion. Reports progress via `onProgress` callback; cancellable via `AbortSignal`. CHR-RAM cartridges are rejected at the boundary — they take the runtime upscale path instead.
+- **`NanoBananaClient` real transport** — Gemini 2.5 Flash Image API client with PNG encode/decode via the Canvas API. Browser-only by design; CLI sticks with `MockUpscaleClient` until a Node-side codec lands.
+- **CLI**: `npm run poncho:convert -- <input.nes> --ai` runs the AI pipeline with the mock client (deterministic NN expansion).
+- **Web UI**: "Use AI upscale" checkbox under "Convert .nes" (Poncho-NES mode only). For CHR-ROM games it shows a modal with progress bar, tile counter, and Cancel button. For CHR-RAM games it converts instantly with a hint that AI will run during play. Uses `NanoBananaClient` if `window.PONCHO_GEMINI_API_KEY` is set; otherwise falls back to `MockUpscaleClient`.
 
 ## [0.3.0] — 2026-05-07
 

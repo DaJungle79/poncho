@@ -2,10 +2,17 @@
  * iNES → PonchoROM CLI.
  *
  * Usage:
- *   npm run poncho:convert -- <input.nes> [output.poncho] [--title "Game Name"]
+ *   npm run poncho:convert -- <input.nes> [output.poncho] [--title "Game Name"] [--ai]
  *
  * If no output path is given, the converter writes
  * `<input-without-ext>.poncho` next to the input file.
+ *
+ * `--ai` switches on the AI bake-now pipeline (`convertInesToPonchoAi`).
+ * Without an API key it runs through `MockUpscaleClient` (deterministic
+ * 4× nearest-neighbour) — useful as a regression target. Pass
+ * `GEMINI_API_KEY` in the environment to use the real upscaler; note
+ * that the real `NanoBananaClient` is browser-only today (it relies on
+ * the platform Canvas API), so the CLI sticks to the mock for now.
  *
  * The conversion logic is in `scripts/lib/ines-to-poncho.ts` so it can
  * also be called programmatically from other scripts / tests.
@@ -16,19 +23,23 @@ import { basename, extname, resolve } from 'node:path';
 
 import {
   ConvertError,
+  MockUpscaleClient,
   bankingVariantName,
   convertInesToPoncho,
+  convertInesToPonchoAi,
 } from './lib/ines-to-poncho';
 
 interface CliArgs {
   input: string;
   output: string;
   title: string | undefined;
+  ai: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
   const positional: string[] = [];
   let title: string | undefined;
+  let ai = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === '--title') {
@@ -38,6 +49,8 @@ function parseArgs(argv: string[]): CliArgs {
       i++;
     } else if (arg.startsWith('--title=')) {
       title = arg.slice('--title='.length);
+    } else if (arg === '--ai') {
+      ai = true;
     } else if (arg === '--help' || arg === '-h') {
       usageAndExit(null);
     } else if (arg.startsWith('--')) {
@@ -52,13 +65,13 @@ function parseArgs(argv: string[]): CliArgs {
   const input = resolve(positional[0]!);
   const defaultOut = input.replace(/\.nes$/i, '') + '.poncho';
   const output = positional[1] ? resolve(positional[1]) : defaultOut;
-  return { input, output, title };
+  return { input, output, title, ai };
 }
 
 function usageAndExit(reason: string | null): never {
   if (reason) console.error(`error: ${reason}\n`);
   console.error(
-    'Usage: npm run poncho:convert -- <input.nes> [output.poncho] [--title "Name"]',
+    'Usage: npm run poncho:convert -- <input.nes> [output.poncho] [--title "Name"] [--ai]',
   );
   process.exit(reason ? 2 : 0);
 }
@@ -76,8 +89,8 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
-function main(): void {
-  const { input, output, title } = parseArgs(process.argv.slice(2));
+async function main(): Promise<void> {
+  const { input, output, title, ai } = parseArgs(process.argv.slice(2));
 
   let inesBytes: Uint8Array;
   try {
@@ -90,8 +103,37 @@ function main(): void {
   const finalTitle = title ?? defaultTitleFromFilename(input);
 
   let result;
+  let aiNotes: { uniqueTiles: number; cacheHits: number; apiCalls: number; failedTiles: number } | null = null;
   try {
-    result = convertInesToPoncho(inesBytes, { title: finalTitle });
+    if (ai) {
+      // CLI path uses MockUpscaleClient — deterministic NN. Real
+      // NanoBananaClient is browser-only (Canvas-dependent). Future:
+      // Node-side codec for true AI bake from CLI.
+      const client = new MockUpscaleClient();
+      let lastPct = -1;
+      const aiResult = await convertInesToPonchoAi(inesBytes, {
+        title: finalTitle,
+        client,
+        onProgress: (p) => {
+          if (p.total === 0) return;
+          const pct = Math.floor((p.done / p.total) * 100);
+          if (pct !== lastPct && pct % 5 === 0) {
+            lastPct = pct;
+            process.stderr.write(`  upscale: ${pct}% (${p.done}/${p.total})\r`);
+          }
+        },
+      });
+      process.stderr.write('\n');
+      result = aiResult;
+      aiNotes = {
+        uniqueTiles: aiResult.notes.uniqueTiles,
+        cacheHits: aiResult.notes.cacheHits,
+        apiCalls: aiResult.notes.apiCalls,
+        failedTiles: aiResult.notes.failedTiles,
+      };
+    } else {
+      result = convertInesToPoncho(inesBytes, { title: finalTitle });
+    }
   } catch (err) {
     if (err instanceof ConvertError) {
       console.error(`Conversion failed: ${err.message}`);
@@ -115,10 +157,18 @@ function main(): void {
   if (notes.chrRamKb > 0) {
     console.log(`  CHR:             RAM (${notes.chrRamKb} KB allocated; PRG uploads at runtime)`);
   } else {
-    console.log(`  CHR:             ${notes.chrKb} KB (verbatim)`);
+    console.log(`  CHR:             ${notes.chrKb} KB${ai ? ' (AI-baked, native mode)' : ' (verbatim)'}`);
+  }
+  if (aiNotes) {
+    console.log(`  AI tiles:        ${aiNotes.uniqueTiles} unique`);
+    console.log(`  AI api-calls:    ${aiNotes.apiCalls}`);
+    console.log(`  AI cache-hits:   ${aiNotes.cacheHits}`);
+    if (aiNotes.failedTiles > 0) {
+      console.log(`  AI fallbacks:    ${aiNotes.failedTiles} (NN substituted)`);
+    }
   }
   console.log(`  master palette:  ${notes.paletteEntries} entries (NES canonical)`);
   for (const w of notes.warnings) console.log(`  ! ${w}`);
 }
 
-main();
+void main();

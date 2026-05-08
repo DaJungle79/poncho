@@ -15,3 +15,20 @@ export {
   type ConvertOptions,
   type ConvertResult,
 } from '../../src/convert/ines-to-poncho';
+
+export {
+  AiConvertCancelled,
+  convertInesToPonchoAi,
+  type AiConvertNotes,
+  type AiConvertOptions,
+  type AiConvertProgress,
+  type AiConvertResult,
+} from '../../src/convert/ines-to-poncho-ai';
+
+export {
+  MockUpscaleClient,
+  NanoBananaClient,
+  UpscaleError,
+  type NanoBananaConfig,
+  type UpscaleClient,
+} from '../../src/convert/upscale-client';
