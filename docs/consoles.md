@@ -59,7 +59,14 @@ The design rationale: keep the parts that aged well (the 6502 core, the 2A03 APU
 
 The full file format and the mapper register map are specified in [`poncho-rom.md`](poncho-rom.md).
 
-**NES backward compatibility.** The Ultra PPU has a *NES-compat* sub-mode (`PpuUltra.setNesCompat(true)`): it exposes the original `$2000–$2007` register set, fetches CHR via the iNES mapper, and renders 8×8 2 bpp tiles as 4×4 pixel blocks. PRG runs unchanged. A converter (`scripts/poncho-convert.ts`, planned) will additionally produce a PonchoROM with upscaled CHR — a starting point for hand-painted art replacement.
+**NES backward compatibility.** The Ultra PPU has a *NES-compat* sub-mode (`PpuUltra.setNesCompat(true)`): it exposes the original `$2000–$2007` register set, fetches CHR via the iNES mapper, and renders 8×8 2 bpp tiles as 4×4 pixel blocks. PRG runs unchanged. A converter (`scripts/poncho-convert.ts`) wraps any iNES file as an upscaled-mode PonchoROM that runs natively under PpuUltra without any compat layer.
+
+**AI upscale (v0.4).** PonchoROM gains an optional AI cache section (`flags.aiCachePresent`, bit 2): a parallel store of 32×32 native tiles keyed by NES tile + sub-palette hash. Two pipelines feed it:
+
+- **Bake-now**: `convertInesToPonchoAi` (CLI: `npm run poncho:convert -- input.nes --ai`) walks the CHR-ROM, dedupes tiles, sends each unique tile to the Gemini 2.5 Flash Image API, and bakes the upscaled tiles into native CHR. Output is a self-contained `.poncho` (`upscaledMode = 0`) — no cache section needed because the tiles are part of CHR proper.
+- **Runtime lazy-bake**: for CHR-RAM games, an `UpscaleWorker` watches PpuUltra's tile fetches. On miss, it kicks off an async API call; until the upscale arrives, the renderer falls back to the existing 4× nearest-neighbour expansion. Resolved tiles flow into the cache section, which is periodically written back to the `.poncho` (60 s + on cart eject), so each session bakes a few more tiles permanently.
+
+The format spec for the AI cache section is in [`poncho-rom.md`](poncho-rom.md).
 
 ---
 

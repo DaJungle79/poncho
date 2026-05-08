@@ -124,7 +124,7 @@ describe('convertInesToPonchoAi — happy path with MockUpscaleClient', () => {
     await convertInesToPonchoAi(ines, { globalCache: cache });
     // Sample one tile from CHR and verify it's in the cache.
     const tile0 = ines.subarray(16 + 16384, 16 + 16384 + 16);
-    const NEUTRAL_PALETTE = new Uint8Array([0x00, 0x10, 0x20, 0x30]);
+    const NEUTRAL_PALETTE = new Uint8Array([0x0f, 0x16, 0x2a, 0x12]);
     const hash = await hashTile(tile0, NEUTRAL_PALETTE);
     expect(await cache.get(hash, AI_CACHE_MODEL_NEAREST_NEIGHBOUR)).not.toBeNull();
   });
@@ -176,8 +176,8 @@ describe('convertInesToPonchoAi — partial-failure handling', () => {
   });
 });
 
-describe('convertInesToPonchoAi — abort signal', () => {
-  it('rejects with AiConvertCancelled when aborted mid-flight', async () => {
+describe('convertInesToPonchoAi — abort signal preserves partial work', () => {
+  it('returns a usable .poncho with NN fallback for un-baked tiles', async () => {
     const ctrl = new AbortController();
     let started = 0;
     const slowClient: UpscaleClient = {
@@ -191,9 +191,36 @@ describe('convertInesToPonchoAi — abort signal', () => {
     };
 
     const ines = makeInes();
-    await expect(
-      convertInesToPonchoAi(ines, { client: slowClient, signal: ctrl.signal, concurrency: 1 }),
-    ).rejects.toBeInstanceOf(AiConvertCancelled);
+    const result = await convertInesToPonchoAi(ines, {
+      client: slowClient, signal: ctrl.signal, concurrency: 1,
+    });
+
+    // `cancelled` flag set; un-baked tiles fell back to NN.
+    expect(result.notes.cancelled).toBe(true);
+    expect(result.notes.cancelledTiles).toBeGreaterThan(0);
+    expect(result.notes.apiCalls).toBeGreaterThan(0);
+    expect(result.notes.apiCalls).toBeLessThan(result.notes.uniqueTiles);
+    // Source iNES has 1 CHR bank (8 KB = 512 NES tiles). Each tile
+    // becomes a 1024-byte native tile in the output → 512 KB.
+    expect(result.notes.chrKb).toBe(512);
+    // The output is still a parseable .poncho.
+    expect(result.poncho.length).toBeGreaterThan(0);
+  });
+
+  it('does NOT mark notes.cancelled when the run completes normally', async () => {
+    const ines = makeInes();
+    const result = await convertInesToPonchoAi(ines);
+    expect(result.notes.cancelled).toBe(false);
+    expect(result.notes.cancelledTiles).toBe(0);
+  });
+});
+
+// AiConvertCancelled is still exported for backward compat but no longer
+// thrown by `convertInesToPonchoAi`. Asserting the import shape so a
+// future "do throw it" change has to update this on purpose.
+describe('AiConvertCancelled export', () => {
+  it('still constructable for shells that catch it as a guard', () => {
+    expect(new AiConvertCancelled()).toBeInstanceOf(Error);
   });
 });
 
@@ -207,6 +234,68 @@ describe('convertInesToPonchoAi — error paths', () => {
   it('rejects unsupported mappers', async () => {
     const ines = makeInes({ mapper: 5 });
     await expect(convertInesToPonchoAi(ines)).rejects.toThrow(/mapper 5/);
+  });
+});
+
+describe('convertInesToPonchoAi — customPrompt forwarding', () => {
+  it('passes customPrompt to client.upscaleTile on every call', async () => {
+    const seen: string[] = [];
+    const client: UpscaleClient = {
+      modelId: 99,
+      async upscaleTile(tile, palette, prompt) {
+        seen.push(prompt ?? '<undefined>');
+        return new MockUpscaleClient().upscaleTile(tile, palette);
+      },
+    };
+    const ines = makeInes();
+    const result = await convertInesToPonchoAi(ines, {
+      client,
+      customPrompt: 'CUSTOM_PROMPT_X',
+    });
+    // Every API call (one per unique tile) should have seen the prompt.
+    expect(seen.length).toBe(result.notes.uniqueTiles);
+    for (const p of seen) expect(p).toBe('CUSTOM_PROMPT_X');
+  });
+
+  it('omitting customPrompt forwards undefined to the client', async () => {
+    const seen: Array<string | undefined> = [];
+    const client: UpscaleClient = {
+      modelId: 99,
+      async upscaleTile(tile, palette, prompt) {
+        seen.push(prompt);
+        return new MockUpscaleClient().upscaleTile(tile, palette);
+      },
+    };
+    await convertInesToPonchoAi(makeInes(), { client });
+    expect(seen.every((p) => p === undefined)).toBe(true);
+  });
+});
+
+/**
+ * The bake-now pipeline renders each NES tile with a fixed "neutral"
+ * 4-entry palette before sending it to Gemini, then snaps the response
+ * back to that same palette. If any two entries map to the same master
+ * RGB, the primer collapses two pixel-values into one colour and the
+ * snap-back can't recover the original — pv3 silently becomes pv2.
+ *
+ * That bug went unnoticed for a while because the original neutral
+ * palette `[0x00, 0x10, 0x20, 0x30]` had `0x20` and `0x30` both at
+ * pure white in the canonical NES master palette. This test guards
+ * against that regression.
+ */
+describe('bake-now neutral palette — pv-preserving by construction', () => {
+  // Mirror of the constant inside `convertInesToPonchoAi`. Kept in sync
+  // with that source manually; the test fails loudly if the indices
+  // are changed back to a degenerate set.
+  const NEUTRAL_PALETTE = new Uint8Array([0x0f, 0x16, 0x2a, 0x12]);
+
+  it('all four master indices map to RGB-distinct colours', async () => {
+    const { NES_MASTER_PALETTE_RGBA } = await import('../../src/core/ppu-ultra/nes-master-palette');
+    const triples = Array.from(NEUTRAL_PALETTE).map((m) => {
+      const i = (m & 0x3f) * 4;
+      return `${NES_MASTER_PALETTE_RGBA[i]},${NES_MASTER_PALETTE_RGBA[i + 1]},${NES_MASTER_PALETTE_RGBA[i + 2]}`;
+    });
+    expect(new Set(triples).size).toBe(4);
   });
 });
 

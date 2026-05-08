@@ -198,6 +198,39 @@ describe('UpscaleWorker — failure handling', () => {
   });
 });
 
+describe('UpscaleWorker — prompt forwarding', () => {
+  it('forwards constructor `prompt` to client.upscaleTile', async () => {
+    let seen: string | undefined = '<sentinel>';
+    const client: UpscaleClient = {
+      modelId: 99,
+      async upscaleTile(_t, _p, prompt) { seen = prompt; return new Uint8Array(1024); },
+    };
+    const w = new UpscaleWorker({ client, prompt: 'CTOR_PROMPT' });
+    w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
+    await flush();
+    expect(seen).toBe('CTOR_PROMPT');
+  });
+
+  it('setPrompt swaps the prompt for subsequent tile fetches', async () => {
+    const seen: Array<string | undefined> = [];
+    const client: UpscaleClient = {
+      modelId: 99,
+      async upscaleTile(_t, _p, prompt) { seen.push(prompt); return new Uint8Array(1024); },
+    };
+    const w = new UpscaleWorker({ client });
+    w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
+    await flush();
+    w.setPrompt('SWAPPED');
+    // Different tile so it isn't cached.
+    const otherTile = new Uint8Array(SAMPLE_TILE);
+    otherTile[0] ^= 0xff;
+    w.resolveSync(otherTile, SAMPLE_PAL);
+    await flush();
+    expect(seen[0]).toBeUndefined();
+    expect(seen[1]).toBe('SWAPPED');
+  });
+});
+
 describe('UpscaleWorker — toSection (write-back)', () => {
   it('serialises completed entries with their hash + nesTile + native', async () => {
     const w = new UpscaleWorker({ client: new MockUpscaleClient() });

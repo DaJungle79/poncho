@@ -60,6 +60,13 @@ Open <http://localhost:5173>. Click the cassette icon in the left sidebar to ope
 - **Browser storage** — uploaded `.nes` files across browser sessions; s
 - **Server folder** — files placed in `roms/` are served by the Vite dev middleware (development only)
 
+### AI upscale (Poncho-NES, v0.4) Alpha!
+
+- **Convert .nes → .poncho with AI bake-now** — CHR-ROM games run through the Gemini 2.5 Flash Image API at conversion time, producing a self-contained `.poncho` with 32×32 native tiles. Modal shows progress, ETA, and a Cancel button; failed tiles fall back to nearest-neighbour so a flaky API doesn't break the conversion.
+- **Lazy upscale at runtime for CHR-RAM games** — tiles uploaded by PRG at runtime get sent to the AI in the background; framebuffer pops in to higher quality as tiles return. Per-tile granularity, so a frame can mix native and 4× nearest-neighbour tiles freely.
+- **Self-upgrading `.poncho` file** — runtime upscales are written back into the cartridge's AI cache section (every 60 s + on cart eject), so each session bakes a few more tiles permanently. Subsequent plays start from that cache; eventually AI calls drop to zero.
+- **Bring your own key** — paste a Google AI Studio key into **Settings → AI upscale**. The key is stored locally; no proxy, no telemetry. Without a key, the deterministic 4× nearest-neighbour fallback runs (same path as before v0.4).
+
 
 ### Architecture
 

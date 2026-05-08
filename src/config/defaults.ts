@@ -36,4 +36,7 @@ export const DEFAULT_CONFIG: Config = {
     showStatusBar: true,
     selectedConsoleId: 'nes',
   },
+  ai: {
+    apiKey: '',
+  },
 };

@@ -471,6 +471,20 @@ select:focus-visible {
 }
 .rom-ai-toggle input { accent-color: var(--fg-soft); }
 
+.rom-ai-hint {
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--fg-soft);
+}
+.rom-ai-configure {
+  background: none; border: none; padding: 0;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--accent-cool); text-decoration: underline; cursor: pointer;
+}
+.rom-ai-configure:hover { color: var(--accent); }
+
 /* ----- AI progress modal ------------------------------------------------- */
 
 .ai-progress-overlay {
@@ -498,7 +512,15 @@ select:focus-visible {
   background: var(--fg-soft);
   transition: width 0.15s linear;
 }
-.ai-progress-count { margin: 0 0 12px; font-size: 11px; color: var(--fg-soft); }
+.ai-progress-count { margin: 0 0 4px; font-size: 11px; color: var(--fg-soft); }
+.ai-progress-eta { margin: 0 0 12px; font-size: 11px; color: var(--fg-soft); }
+.ai-progress-link {
+  background: none; border: none; padding: 0;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--accent-cool); text-decoration: underline; cursor: pointer;
+  margin-left: 8px;
+}
+.ai-progress-link:hover { color: var(--accent); }
 .ai-progress-cancel {
   background: var(--bg); color: var(--fg);
   border: 1px solid var(--line);
@@ -656,6 +678,54 @@ select:focus-visible {
   border: 1px solid var(--bg);
   border-radius: 0;
 }
+
+.settings-row.settings-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.settings-row.settings-row-stack > span:first-child {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--fg-soft);
+}
+
+.settings-key-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.settings-key-row input {
+  flex: 1;
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 8px;
+}
+.settings-key-row input::placeholder { color: var(--fg-soft); opacity: 0.6; }
+.settings-key-eye {
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  color: var(--fg-soft);
+  padding: 0 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+.settings-key-eye:hover { color: var(--accent-cool); border-color: var(--accent-cool); }
+.settings-key-eye svg { width: 14px; height: 14px; }
+
+.settings-hint {
+  margin: 4px 0 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--fg-soft);
+}
+.settings-hint a { color: var(--accent-cool); text-decoration: underline; }
 
 .settings-link {
   width: 100%;

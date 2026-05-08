@@ -1,14 +1,15 @@
 import { gameIcon, mountLucideIcons } from '../icons';
 import type { Panel } from '../panel-stack';
 import type { FilePicker, RomLibrary, ServerRomLoader } from '../../../../platform/types';
-import type { LoadedRom, StoredRomEntry } from '../../../../domain/rom';
+import type { LoadedRom, RomMeta, StoredRomEntry } from '../../../../domain/rom';
 import { ConvertError, convertInesToPoncho } from '../../../../convert/ines-to-poncho';
 import {
   AiConvertCancelled,
   convertInesToPonchoAi,
   type AiConvertProgress,
 } from '../../../../convert/ines-to-poncho-ai';
-import { MockUpscaleClient, NanoBananaClient } from '../../../../convert/upscale-client';
+import { MockUpscaleClient, NanoBananaClient, QuotaExceededError } from '../../../../convert/upscale-client';
+import { buildGameUpscalePrompt } from '../../../../convert/prompt-builder';
 
 export interface RomsPanelDeps {
   /** Persistent local library — uploaded ROMs (web: IndexedDB). */
@@ -21,6 +22,16 @@ export interface RomsPanelDeps {
   onLoaded: (rom: LoadedRom) => void | Promise<void>;
   /** Optional callback for transient status messages (routed to the bottom status bar). */
   onStatus?: (text: string) => void;
+  /** Read the configured Gemini API key. Empty string = no key. */
+  getApiKey?: () => string;
+  /** Open Settings + focus the API key input. Used by the "Configure key" hint. */
+  onConfigureApiKey?: () => void;
+  /**
+   * Resolve display metadata (title / genre / year / publisher) for a
+   * picked ROM. Used by the bake-now flow to build a game-specific
+   * upscale prompt. Falls back to filename-based metadata internally.
+   */
+  lookupRomMeta?: (rom: LoadedRom) => Promise<RomMeta>;
 }
 
 /**
@@ -52,6 +63,7 @@ export class RomsPanel implements Panel {
   private readonly btnConvert: HTMLButtonElement;
   private readonly aiToggleWrap: HTMLLabelElement;
   private readonly aiCheckbox: HTMLInputElement;
+  private readonly aiHint: HTMLElement;
   private consoleId = 'nes';
 
   constructor(private readonly deps: RomsPanelDeps) {
@@ -79,6 +91,11 @@ export class RomsPanel implements Panel {
             <input type="checkbox" data-ai-checkbox>
             <span>Use AI upscale (CHR-ROM games only)</span>
           </label>
+          <p class="rom-ai-hint" data-ai-hint hidden>
+            No Gemini API key set — converts will use the deterministic
+            4× fallback.
+            <button type="button" class="rom-ai-configure" data-ai-configure>Configure</button>
+          </p>
         </section>
 
         <section class="rom-section" data-server-section>
@@ -103,6 +120,9 @@ export class RomsPanel implements Panel {
     this.btnConvert = this.root.querySelector<HTMLButtonElement>('[data-convert]')!;
     this.aiToggleWrap = this.root.querySelector<HTMLLabelElement>('[data-ai-toggle]')!;
     this.aiCheckbox = this.root.querySelector<HTMLInputElement>('[data-ai-checkbox]')!;
+    this.aiHint = this.root.querySelector<HTMLElement>('[data-ai-hint]')!;
+    this.root.querySelector<HTMLButtonElement>('[data-ai-configure]')!
+      .addEventListener('click', () => this.deps.onConfigureApiKey?.());
 
     // Hide the Server section on platforms that have no dev-server-style
     // ROM loader (e.g. Electron). The platform passes `serverRoms: null`
@@ -116,6 +136,13 @@ export class RomsPanel implements Panel {
     mountLucideIcons();
     void this.refreshBrowserList();
     void this.refreshServerList();
+    this.syncAiHint();
+  }
+
+  private syncAiHint(): void {
+    const aiVisible = !this.aiToggleWrap.hidden;
+    const hasKey = (this.deps.getApiKey?.() ?? '').length > 0;
+    this.aiHint.hidden = !aiVisible || hasKey;
   }
 
   /** Update panel chrome and ROM lists for the newly-active console. */
@@ -130,6 +157,7 @@ export class RomsPanel implements Panel {
     // as an upscaled-mode `.poncho` cartridge.
     this.btnConvert.hidden = consoleId !== 'poncho-nes';
     this.aiToggleWrap.hidden = consoleId !== 'poncho-nes';
+    this.syncAiHint();
   }
 
   private setStatus(text: string): void {
@@ -333,16 +361,20 @@ export class RomsPanel implements Panel {
           `AI upscale will run during play)`;
       } else if (useAi) {
         // CHR-ROM bake-now: show progress modal.
-        const aiResult = await this.runAiConvert(picked.data, baseTitle);
+        const aiResult = await this.runAiConvert(picked.data, baseTitle, picked);
         if (!aiResult) {
           this.setStatus('AI conversion cancelled.');
           return;
         }
         resultPoncho = aiResult.poncho;
         const n = aiResult.notes;
+        const tilesDone = n.apiCalls + n.cacheHits;
+        const partialPrefix = n.cancelled
+          ? `Cancelled at ${tilesDone} / ${n.uniqueTiles} tiles — partial saved. `
+          : '';
         summary =
-          `(mapper ${n.sourceMapper}, native CHR ${n.chrKb} KB, ` +
-          `${n.uniqueTiles} unique tiles, ${n.failedTiles} fallbacks)`;
+          `${partialPrefix}(mapper ${n.sourceMapper}, native CHR ${n.chrKb} KB, ` +
+          `${n.uniqueTiles} unique tiles, ${n.failedTiles + n.cancelledTiles} fallbacks)`;
       } else {
         const result = convertInesToPoncho(picked.data, { title: baseTitle });
         resultPoncho = result.poncho;
@@ -351,7 +383,13 @@ export class RomsPanel implements Panel {
         summary = `(mapper ${n.sourceMapper}, ${chrLabel}, PRG ${n.prgKb} KB)`;
       }
     } catch (err) {
-      if (err instanceof ConvertError) {
+      if (err instanceof QuotaExceededError) {
+        this.setStatus(
+          'Gemini quota exhausted — the free tier has 0 requests/day for ' +
+          'the image model. Enable billing on your Google Cloud project, ' +
+          'or untick "Use AI upscale" to convert with the 4× fallback.',
+        );
+      } else if (err instanceof ConvertError) {
         this.setStatus(`Conversion failed: ${err.message}`);
       } else {
         this.setStatus(`Conversion failed: ${(err as Error).message}`);
@@ -380,17 +418,49 @@ export class RomsPanel implements Panel {
   private async runAiConvert(
     inesBytes: Uint8Array,
     baseTitle: string,
+    rom: LoadedRom,
   ): Promise<Awaited<ReturnType<typeof convertInesToPonchoAi>> | null> {
-    const apiKey = (window as unknown as { PONCHO_GEMINI_API_KEY?: string }).PONCHO_GEMINI_API_KEY;
+    const apiKey = this.deps.getApiKey?.() ?? '';
     const client = apiKey
       ? new NanoBananaClient({ apiKey })
       : new MockUpscaleClient();
 
-    const modal = createAiProgressModal(apiKey ? 'Gemini 2.5 Flash Image' : 'Nearest-neighbour (no API key)');
+    const modal = createAiProgressModal(
+      apiKey ? 'Gemini 2.5 Flash Image' : 'Nearest-neighbour (no API key)',
+      apiKey ? null : (() => this.deps.onConfigureApiKey?.()),
+    );
     document.body.appendChild(modal.root);
 
     const ctrl = new AbortController();
     modal.onCancel(() => ctrl.abort());
+
+    // Build the per-game upscale prompt before starting the bake.
+    // Cheap (single text-Gemini call) and cached per title in memory.
+    // Fails open: null prompt → client uses its default. Inspectable via
+    // devtools console at log level `rom:info`.
+    let customPrompt: string | undefined;
+    if (apiKey) {
+      try {
+        const meta = this.deps.lookupRomMeta
+          ? await this.deps.lookupRomMeta(rom)
+          : { title: baseTitle, subtitle: null, source: 'filename' as const };
+        const built = await buildGameUpscalePrompt({
+          apiKey,
+          game: {
+            title: meta.title || baseTitle,
+            subtitle: meta.subtitle ?? null,
+            ...(meta.year !== undefined ? { year: meta.year } : {}),
+            ...(meta.publisher ? { publisher: meta.publisher } : {}),
+            ...(meta.developer ? { developer: meta.developer } : {}),
+            ...(meta.genre ? { genre: meta.genre } : {}),
+          },
+          signal: ctrl.signal,
+        });
+        customPrompt = built ?? undefined;
+      } catch {
+        // Already logged inside buildGameUpscalePrompt; just fall through.
+      }
+    }
 
     try {
       const result = await convertInesToPonchoAi(inesBytes, {
@@ -398,10 +468,15 @@ export class RomsPanel implements Panel {
         client,
         signal: ctrl.signal,
         onProgress: (p) => modal.update(p),
+        ...(customPrompt ? { customPrompt } : {}),
       });
       modal.complete();
       return result;
     } catch (err) {
+      // AbortSignal-driven cancel is no longer thrown — `convertInesToPonchoAi`
+      // returns the partial result with `notes.cancelled = true` instead,
+      // so the caller can save the half-baked `.poncho`. Anything thrown
+      // here is a real error.
       if (err instanceof AiConvertCancelled) return null;
       throw err;
     } finally {
@@ -415,7 +490,10 @@ export class RomsPanel implements Panel {
  * inline rather than as a generic dialog component — it's the only modal
  * in the shell so far and a shared abstraction is premature.
  */
-function createAiProgressModal(modelLabel: string): {
+function createAiProgressModal(
+  modelLabel: string,
+  onConfigureKey: (() => void) | null,
+): {
   root: HTMLElement;
   update(p: AiConvertProgress): void;
   complete(): void;
@@ -426,18 +504,30 @@ function createAiProgressModal(modelLabel: string): {
   root.innerHTML = `
     <div class="ai-progress-card">
       <h3>AI upscale in progress</h3>
-      <p class="ai-progress-model">Model: <span data-model></span></p>
+      <p class="ai-progress-model">
+        Model: <span data-model></span>
+        <button type="button" class="ai-progress-link" data-configure hidden>Configure key</button>
+      </p>
       <div class="ai-progress-bar"><div class="ai-progress-fill" data-fill></div></div>
       <p class="ai-progress-count" data-count>0 / 0 tiles</p>
+      <p class="ai-progress-eta" data-eta>elapsed —, eta —</p>
       <button type="button" class="ai-progress-cancel" data-cancel>Cancel</button>
     </div>
   `;
   root.querySelector<HTMLSpanElement>('[data-model]')!.textContent = modelLabel;
   const fill = root.querySelector<HTMLElement>('[data-fill]')!;
   const count = root.querySelector<HTMLElement>('[data-count]')!;
+  const eta = root.querySelector<HTMLElement>('[data-eta]')!;
   const cancel = root.querySelector<HTMLButtonElement>('[data-cancel]')!;
+  const configure = root.querySelector<HTMLButtonElement>('[data-configure]')!;
+  if (onConfigureKey) {
+    configure.hidden = false;
+    configure.addEventListener('click', onConfigureKey);
+  }
   let cancelHandler: (() => void) | null = null;
   cancel.addEventListener('click', () => cancelHandler?.());
+
+  const startedAt = performance.now();
 
   return {
     root,
@@ -445,6 +535,21 @@ function createAiProgressModal(modelLabel: string): {
       const pct = p.total === 0 ? 100 : Math.floor((p.done / p.total) * 100);
       fill.style.width = `${pct}%`;
       count.textContent = `${p.done} / ${p.total} tiles · ${p.cached} cached · ${p.failed} fallbacks`;
+
+      // ETA: linear extrapolation of elapsed × remaining/done. Cached
+      // hits resolve effectively instantly, so we compute rate over
+      // *all* completed work (cached + api-calls + failed).
+      const elapsedMs = performance.now() - startedAt;
+      const elapsed = formatDuration(elapsedMs);
+      let etaText = '—';
+      if (p.done > 0 && p.done < p.total) {
+        const perTile = elapsedMs / p.done;
+        const remainingMs = perTile * (p.total - p.done);
+        etaText = formatDuration(remainingMs);
+      } else if (p.done === p.total) {
+        etaText = '0s';
+      }
+      eta.textContent = `elapsed ${elapsed}, eta ${etaText}`;
     },
     complete() {
       fill.style.width = '100%';
@@ -453,6 +558,14 @@ function createAiProgressModal(modelLabel: string): {
     },
     onCancel(fn) { cancelHandler = fn; },
   };
+}
+
+function formatDuration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rs = s - m * 60;
+  return `${m}m ${rs.toString().padStart(2, '0')}s`;
 }
 
 function formatSize(bytes: number): string {

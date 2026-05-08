@@ -71,6 +71,7 @@ function migrate(parsed: Partial<Config>): Config {
       player2Keys: { ...DEFAULT_CONFIG.input.player2Keys, ...(parsed.input?.player2Keys ?? {}) },
     },
     general: { ...DEFAULT_CONFIG.general, ...(parsed.general ?? {}) },
+    ai: { ...DEFAULT_CONFIG.ai, ...(parsed.ai ?? {}) },
   };
   return merged;
 }

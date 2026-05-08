@@ -39,10 +39,18 @@ export interface UpscaleClient {
    * Poncho tile (1024-byte 8 bpp linear). Sub-palette indices give the
    * client context for picking colours; pv 0 = transparent / universal-BG.
    *
+   * Optional `prompt` overrides the client's default prompt for *this
+   * call only* — used by the per-game `PromptBuilder` to inject genre /
+   * vibe context into every per-tile API call. Mock clients ignore it.
+   *
    * Throws `UpscaleError` on transport failure. Callers catch + fall back
    * to nearest-neighbour for that tile (or substitute, depending on policy).
    */
-  upscaleTile(nesTile: Uint8Array, subPalette: Uint8Array): Promise<Uint8Array>;
+  upscaleTile(
+    nesTile: Uint8Array,
+    subPalette: Uint8Array,
+    prompt?: string,
+  ): Promise<Uint8Array>;
 }
 
 /**
@@ -53,7 +61,11 @@ export interface UpscaleClient {
 export class MockUpscaleClient implements UpscaleClient {
   readonly modelId = AI_CACHE_MODEL_NEAREST_NEIGHBOUR;
 
-  async upscaleTile(nesTile: Uint8Array, _subPalette: Uint8Array): Promise<Uint8Array> {
+  async upscaleTile(
+    nesTile: Uint8Array,
+    _subPalette: Uint8Array,
+    _prompt?: string,
+  ): Promise<Uint8Array> {
     if (nesTile.length !== 16) {
       throw new UpscaleError(`expected 16-byte NES tile, got ${nesTile.length}`);
     }
@@ -113,6 +125,38 @@ export interface NanoBananaConfig {
   fetch?: typeof fetch;
   /** Tweak the upscale prompt. Defaults to a pixel-art-friendly one. */
   prompt?: string;
+  /**
+   * Max retry attempts on 429 / 5xx before giving up. Default 4 — five
+   * total attempts including the initial one, with exponential backoff
+   * (1 s → 2 s → 4 s → 8 s) plus jitter. Capped by `Retry-After` if the
+   * server tells us to wait longer.
+   */
+  maxRetries?: number;
+}
+
+/**
+ * Thrown when the API rate-limits us *and* every retry has been
+ * exhausted. The pipeline catches `UpscaleError` and substitutes
+ * nearest-neighbour for that tile.
+ */
+export class RateLimitError extends UpscaleError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RateLimitError';
+  }
+}
+
+/**
+ * Thrown when the API reports a *permanent* quota exhaustion (e.g.
+ * Gemini's free-tier `limit: 0` for the image model). Distinct from
+ * `RateLimitError` because retrying won't help — the caller should
+ * abort the whole job and surface a billing/plan message to the user.
+ */
+export class QuotaExceededError extends UpscaleError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'QuotaExceededError';
+  }
 }
 
 const DEFAULT_PROMPT =
@@ -130,6 +174,7 @@ export class NanoBananaClient implements UpscaleClient {
   private readonly modelName: string;
   private readonly fetchImpl: typeof fetch;
   private readonly prompt: string;
+  private readonly maxRetries: number;
 
   constructor(config: NanoBananaConfig) {
     if (!config.apiKey) {
@@ -139,12 +184,17 @@ export class NanoBananaClient implements UpscaleClient {
     this.modelName = config.modelName ?? DEFAULT_MODEL;
     this.fetchImpl = config.fetch ?? (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : null as never);
     this.prompt = config.prompt ?? DEFAULT_PROMPT;
+    this.maxRetries = config.maxRetries ?? 4;
     if (!this.fetchImpl) {
       throw new UpscaleError('NanoBananaClient: no fetch available in this environment');
     }
   }
 
-  async upscaleTile(nesTile: Uint8Array, subPalette: Uint8Array): Promise<Uint8Array> {
+  async upscaleTile(
+    nesTile: Uint8Array,
+    subPalette: Uint8Array,
+    prompt?: string,
+  ): Promise<Uint8Array> {
     if (nesTile.length !== 16) {
       throw new UpscaleError(`expected 16-byte NES tile, got ${nesTile.length}`);
     }
@@ -161,25 +211,22 @@ export class NanoBananaClient implements UpscaleClient {
     const primerRgba = renderTile32(nesTile, subPalette);
     const primerPngBase64 = await rgbaToPngBase64(primerRgba, 32, 32);
 
+    // Per-call prompt wins over the constructor default. Lets the
+    // game-aware `PromptBuilder` plug in a genre/vibe-tailored directive
+    // without re-creating the client.
+    const effectivePrompt = (prompt && prompt.trim().length > 0) ? prompt : this.prompt;
+
     const url = `${API_BASE}/${this.modelName}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
     const body = {
       contents: [{
         parts: [
-          { text: this.prompt },
+          { text: effectivePrompt },
           { inlineData: { mimeType: 'image/png', data: primerPngBase64 } },
         ],
       }],
     };
 
-    const resp = await this.fetchImpl(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '');
-      throw new UpscaleError(`Gemini API ${resp.status}: ${text.slice(0, 200)}`);
-    }
+    const resp = await this.postWithRetry(url, body);
 
     const json: GeminiResponse = await resp.json();
     const out = extractFirstImage(json);
@@ -189,6 +236,86 @@ export class NanoBananaClient implements UpscaleClient {
     const decoded = await decodePngTo32(out);
     return snapToPaletteIndices(decoded, subPalette);
   }
+
+  /**
+   * POST with retry/backoff on 429 + 5xx. Honours `Retry-After` (both
+   * delta-seconds and HTTP-date forms). Other non-OK responses fail
+   * fast — they're typically auth / quota / bad-request errors that
+   * won't fix themselves on retry.
+   */
+  private async postWithRetry(url: string, body: unknown): Promise<Response> {
+    let lastErrText = '';
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      const resp = await this.fetchImpl(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (resp.ok) return resp;
+
+      const status = resp.status;
+      const text = await resp.text().catch(() => '');
+      lastErrText = text.slice(0, 200);
+
+      // Detect permanent quota exhaustion (e.g. free-tier `limit: 0`).
+      // The error body's message string carries `limit: 0` literally;
+      // it's also surfaced via the per-day quotaId. Either pattern means
+      // retrying won't help — abort the whole job, not just this tile.
+      if (status === 429 && isPermanentQuota(text)) {
+        throw new QuotaExceededError(
+          `Gemini API quota exhausted (free-tier limit reached or billing required): ${lastErrText}`,
+        );
+      }
+
+      const isRetryable = status === 429 || (status >= 500 && status < 600);
+      if (!isRetryable || attempt === this.maxRetries) {
+        if (status === 429) {
+          throw new RateLimitError(
+            `Gemini API rate-limited after ${attempt + 1} attempts: ${lastErrText}`,
+          );
+        }
+        throw new UpscaleError(`Gemini API ${status}: ${lastErrText}`);
+      }
+
+      // Backoff: max(server-hint, 2^attempt s) + jitter.
+      const retryAfter = parseRetryAfter(resp.headers.get('Retry-After'));
+      const exp = Math.min(8000, 1000 * Math.pow(2, attempt));
+      const jitter = Math.floor(Math.random() * 250);
+      const waitMs = Math.max(retryAfter ?? 0, exp) + jitter;
+      await sleep(waitMs);
+    }
+    // Unreachable — the loop returns or throws.
+    throw new UpscaleError(`Gemini API failed: ${lastErrText}`);
+  }
+}
+
+/**
+ * Heuristic: does this 429 body indicate a *permanent* quota (no point
+ * retrying)? Gemini's free-tier image model returns `limit: 0` for the
+ * per-day request quota — meaning you need to enable billing, not wait.
+ * The `RESOURCE_EXHAUSTED` + `plan and billing details` phrasing is the
+ * other tell. We accept either so we degrade gracefully if Google
+ * reshapes the error envelope.
+ */
+function isPermanentQuota(body: string): boolean {
+  return /\blimit:\s*0\b/i.test(body)
+    || /plan and billing details/i.test(body);
+}
+
+/** Parse a `Retry-After` header value into milliseconds. Null on parse failure. */
+function parseRetryAfter(raw: string | null): number | null {
+  if (!raw) return null;
+  // Delta-seconds form.
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  // HTTP-date form.
+  const ts = Date.parse(raw);
+  if (!Number.isNaN(ts)) return Math.max(0, ts - Date.now());
+  return null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 interface GeminiResponse {

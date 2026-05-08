@@ -34,6 +34,8 @@ export class SettingsPanel implements Panel {
   private readonly volumeRange: HTMLInputElement;
   private readonly muteCheckbox: HTMLInputElement;
   private readonly statusBarCheckbox: HTMLInputElement;
+  private readonly aiKeyInput: HTMLInputElement;
+  private readonly aiKeyToggleVisibility: HTMLButtonElement;
 
   constructor(private readonly deps: SettingsPanelDeps) {
     this.root = document.createElement('section');
@@ -106,6 +108,40 @@ export class SettingsPanel implements Panel {
         </section>
 
         <section class="settings-group">
+          <h3><i data-lucide="sparkles"></i><span>AI upscale</span></h3>
+          <p class="settings-hint">
+            Powers the "Use AI upscale" workflow on Poncho-NES — bake-now
+            for CHR-ROM games and live upscale for CHR-RAM games. Without
+            a key, the runtime falls back to 4× nearest-neighbour.
+          </p>
+          <label class="settings-row settings-row-stack">
+            <span>Gemini API key</span>
+            <span class="settings-key-row">
+              <input
+                type="password"
+                data-ai-key
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="paste your key…"
+              />
+              <button
+                type="button"
+                class="settings-key-eye"
+                data-ai-key-toggle
+                title="Show / hide key"
+                aria-label="Show / hide key"
+              ><i data-lucide="eye"></i></button>
+            </span>
+          </label>
+          <p class="settings-hint">
+            Get a key at
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com</a>.
+            Stored locally in your browser; never sent anywhere except the
+            Gemini endpoint when you trigger an upscale.
+          </p>
+        </section>
+
+        <section class="settings-group">
           <button class="settings-link" data-controls>
             <i data-lucide="keyboard"></i>
             <span>Controls</span>
@@ -127,6 +163,8 @@ export class SettingsPanel implements Panel {
     this.volumeRange = this.root.querySelector<HTMLInputElement>('[data-volume]')!;
     this.muteCheckbox = this.root.querySelector<HTMLInputElement>('[data-mute]')!;
     this.statusBarCheckbox = this.root.querySelector<HTMLInputElement>('[data-status-bar]')!;
+    this.aiKeyInput = this.root.querySelector<HTMLInputElement>('[data-ai-key]')!;
+    this.aiKeyToggleVisibility = this.root.querySelector<HTMLButtonElement>('[data-ai-key-toggle]')!;
 
     this.bindEvents();
   }
@@ -139,6 +177,7 @@ export class SettingsPanel implements Panel {
     this.volumeRange.value = String(Math.round(cfg.audio.volume * 100));
     this.muteCheckbox.checked = cfg.audio.muted;
     this.statusBarCheckbox.checked = cfg.general.showStatusBar;
+    this.aiKeyInput.value = cfg.ai.apiKey;
     this.syncOverscanUI(cfg);
     this.applyScalerAvailability(cfg.general.selectedConsoleId);
   }
@@ -249,6 +288,24 @@ export class SettingsPanel implements Panel {
     this.root
       .querySelector<HTMLButtonElement>('[data-controls]')!
       .addEventListener('click', () => this.deps.onOpenControls());
+
+    // AI key — `change` (not `input`) so we don't write on every keystroke.
+    this.aiKeyInput.addEventListener('change', () => {
+      const cfg = this.deps.config.update((c) => ({
+        ...c,
+        ai: { ...c.ai, apiKey: this.aiKeyInput.value.trim() },
+      }));
+      this.deps.onConfigChanged(cfg);
+    });
+    this.aiKeyToggleVisibility.addEventListener('click', () => {
+      this.aiKeyInput.type = this.aiKeyInput.type === 'password' ? 'text' : 'password';
+    });
+  }
+
+  /** Public accessor — used by the deep-link "Configure key" affordance. */
+  focusAiKey(): void {
+    this.aiKeyInput.focus();
+    this.aiKeyInput.select();
   }
 }
 

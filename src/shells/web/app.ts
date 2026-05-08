@@ -16,6 +16,7 @@ import { PonchoNes } from '../../console/poncho-nes';
 import { ALL_SPECS, NES_SPEC, PONCHO_NES_SPEC } from '../../console/specs';
 import { repackPonchoWithAiCache } from '../../core/cart-poncho/repack';
 import { MockUpscaleClient, NanoBananaClient } from '../../convert/upscale-client';
+import { buildGameUpscalePrompt } from '../../convert/prompt-builder';
 import { UpscaleWorker } from '../../runtime/upscale-worker';
 import type { ConsoleSpec } from '../../console/console';
 import { KeyboardSource } from '../../core/input/keyboard-source';
@@ -137,6 +138,9 @@ export class App {
       filePicker: platform.filePicker,
       onLoaded: (rom) => this.loadRom(rom),
       onStatus: (text) => this.setStatus(text),
+      getApiKey: () => this.config.get().ai.apiKey,
+      onConfigureApiKey: () => this.openSettingsAndFocusKey(),
+      lookupRomMeta: (rom) => this.romInfo.lookup(rom),
     });
     this.stack.registerL2(this.romsPanel);
     const initialSpec = ALL_SPECS.find((s) => s.id === this.config.get().general.selectedConsoleId) ?? ALL_SPECS[0]!;
@@ -289,9 +293,14 @@ export class App {
       this.platform.audio.setVolume(this.config.get().audio.volume);
       this.platform.audio.setMuted(this.config.get().audio.muted);
       // Async, non-blocking — title appears once the lookup resolves.
+      // Same lookup also feeds the runtime upscale worker's per-game
+      // prompt, so we don't lookup twice.
       this.romInfo
         .lookup(rom)
-        .then((meta) => this.setGameTitle(meta))
+        .then((meta) => {
+          this.setGameTitle(meta);
+          void this.applyAiGamePrompt(meta);
+        })
         .catch((err) => {
           log.warn('rom', 'rominfo lookup failed', err);
           this.setGameTitle({
@@ -411,6 +420,15 @@ export class App {
     document.documentElement.dataset.statusBar = visible ? 'visible' : 'hidden';
   }
 
+  /** Deep-link target for "Configure key" affordances in other panels. */
+  private openSettingsAndFocusKey(): void {
+    this.stack.openL2('settings');
+    this.sidebar.syncActive();
+    // Settings.onShow runs synchronously and populates the input; defer
+    // the focus call so it sees the freshly-mounted DOM.
+    queueMicrotask(() => this.settingsPanel.focusAiKey());
+  }
+
   // ----- AI upscale worker lifecycle ----------------------------------------
 
   /**
@@ -432,7 +450,7 @@ export class App {
     if (!cart.layout.header.flags.upscaledMode) return;
     if (!cart.chrIsRam) return;
 
-    const apiKey = (window as unknown as { PONCHO_GEMINI_API_KEY?: string }).PONCHO_GEMINI_API_KEY;
+    const apiKey = this.config.get().ai.apiKey;
     let client;
     try {
       client = apiKey ? new NanoBananaClient({ apiKey }) : new MockUpscaleClient();
@@ -514,6 +532,42 @@ export class App {
    */
   private shouldPersistAiCache(rom: LoadedRom): boolean {
     return rom.source.startsWith('browser:') || rom.source.startsWith('file:');
+  }
+
+  /**
+   * Build a per-game upscale prompt and apply it to the active runtime
+   * upscale worker. No-op when there's no worker (cart isn't eligible
+   * for runtime upscale) or no API key (text Gemini call would fail).
+   * In-memory cached so subsequent loads of the same title skip the call.
+   */
+  private async applyAiGamePrompt(meta: RomMeta): Promise<void> {
+    const worker = this.aiWorker;
+    if (!worker) return;
+    const apiKey = this.config.get().ai.apiKey;
+    if (!apiKey) return;
+    try {
+      const prompt = await buildGameUpscalePrompt({
+        apiKey,
+        game: {
+          title: meta.title,
+          subtitle: meta.subtitle ?? null,
+          ...(meta.year !== undefined ? { year: meta.year } : {}),
+          ...(meta.publisher ? { publisher: meta.publisher } : {}),
+          ...(meta.developer ? { developer: meta.developer } : {}),
+          ...(meta.genre ? { genre: meta.genre } : {}),
+        },
+      });
+      // The worker may have been torn down while we awaited (cart eject).
+      if (this.aiWorker !== worker) return;
+      worker.setPrompt(prompt ?? undefined);
+      if (prompt) {
+        log.info('rom', `runtime worker: per-game prompt applied for "${meta.title}"`);
+      } else {
+        log.info('rom', `runtime worker: keeping default prompt (build returned null) for "${meta.title}"`);
+      }
+    } catch (err) {
+      log.warn('rom', 'AI game-prompt build failed', err);
+    }
   }
 }
 

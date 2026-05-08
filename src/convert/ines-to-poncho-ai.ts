@@ -44,7 +44,7 @@ import {
   type GlobalTileCache,
   type TileHashHex,
 } from './tile-cache';
-import { MockUpscaleClient, type UpscaleClient } from './upscale-client';
+import { MockUpscaleClient, QuotaExceededError, type UpscaleClient } from './upscale-client';
 
 /** Counters surfaced through the progress callback. */
 export interface AiConvertProgress {
@@ -74,10 +74,21 @@ export interface AiConvertOptions {
    * upscaled tiles are reused across conversions.
    */
   globalCache?: GlobalTileCache;
-  /** Max parallel API calls. Default 4. */
+  /**
+   * Max parallel API calls. Default 2 — Gemini's free tier rate-limits
+   * aggressively at higher concurrency. Bump up for paid tiers.
+   */
   concurrency?: number;
   /** Fired after each unique tile is resolved. UI hooks the progress bar. */
   onProgress?: (info: AiConvertProgress) => void;
+  /**
+   * Optional per-game prompt override. When set, forwarded to every
+   * `client.upscaleTile` call so the AI gets game-specific direction
+   * (genre, vibe, art style). Built once per conversion via
+   * `buildGameUpscalePrompt` from the game's RomMeta. Falls back to the
+   * client's default prompt when omitted.
+   */
+  customPrompt?: string;
   /**
    * Cancellation. When triggered the pipeline stops scheduling new
    * tiles and rejects with `AiConvertCancelled`. Tiles already cached
@@ -95,6 +106,14 @@ export interface AiConvertNotes extends ConvertNotes {
   apiCalls: number;
   /** Tiles whose API call failed and fell back to nearest-neighbour. */
   failedTiles: number;
+  /**
+   * Tiles that the user cancelled before reaching — substituted with
+   * nearest-neighbour. Lets you bake the first N tiles, hit Cancel, and
+   * still get a playable `.poncho` to inspect the partial result.
+   */
+  cancelledTiles: number;
+  /** True when the user hit Cancel mid-bake. */
+  cancelled: boolean;
 }
 
 export interface AiConvertResult {
@@ -148,14 +167,26 @@ export async function convertInesToPonchoAi(
 
   const client = opts.client ?? new MockUpscaleClient();
   const globalCache = opts.globalCache ?? new MemoryGlobalCache();
-  const concurrency = Math.max(1, opts.concurrency ?? 4);
+  const concurrency = Math.max(1, opts.concurrency ?? 2);
 
   // Bake-time dedup: hash by tile bytes only. Sub-palette context is
   // unknown at conversion (one tile renders with many palettes during
-  // play), so we send the AI a neutral grayscale and let the runtime
-  // apply palette as before. The neutral palette is also the hash domain
-  // — bake-now and runtime live in different cache namespaces.
-  const NEUTRAL_PALETTE = new Uint8Array([0x00, 0x10, 0x20, 0x30]);
+  // play), so we send the AI a neutral palette and let the runtime
+  // apply the actual palette as before. The neutral palette is also the
+  // hash domain — bake-now and runtime live in different cache namespaces.
+  //
+  // CRITICAL: all four entries must resolve to *visually distinct* RGB
+  // values in the NES master palette, otherwise the primer image we
+  // send Gemini collapses two pixel-values into one colour and the
+  // snap-back loses the original distinction. The default-master `0x20`
+  // and `0x30` are both pure white, so we pick four distinct hues
+  // instead — black / red / green / blue — for maximum signal.
+  const NEUTRAL_PALETTE = new Uint8Array([
+    0x0f, // black     (0x00, 0x00, 0x00)
+    0x16, // red       (0xd2, 0x12, 0x69)
+    0x2a, // green     (0x43, 0xf6, 0x11)
+    0x12, // blue      (0x4b, 0x30, 0xff)
+  ]);
 
   // Walk all tiles, build hash → unique-tile-index map.
   type TileGroup = { hash: TileHashHex; bytes: Uint8Array };
@@ -176,6 +207,7 @@ export async function convertInesToPonchoAi(
   let cached = 0;
   let apiCalls = 0;
   let failed = 0;
+  let cancelledTiles = 0;
   const upscaled = new Map<TileHashHex, Uint8Array>();
 
   const reportProgress = (): void => {
@@ -191,10 +223,12 @@ export async function convertInesToPonchoAi(
     if (opts.signal?.aborted) cancelled = true;
   };
 
+  let fatalError: Error | null = null;
+
   const worker = async (): Promise<void> => {
     while (true) {
       checkAbort();
-      if (cancelled) return;
+      if (cancelled || fatalError) return;
       const i = cursor++;
       if (i >= groups.length) return;
       const group = groups[i]!;
@@ -205,14 +239,21 @@ export async function convertInesToPonchoAi(
         cached++;
       } else {
         try {
-          const native = await client.upscaleTile(group.bytes, NEUTRAL_PALETTE);
+          const native = await client.upscaleTile(group.bytes, NEUTRAL_PALETTE, opts.customPrompt);
           if (native.length !== 1024) {
             throw new Error(`upscaler returned ${native.length} bytes (expected 1024)`);
           }
           upscaled.set(group.hash, native);
           await globalCache.put(group.hash, client.modelId, native);
           apiCalls++;
-        } catch {
+        } catch (err) {
+          // Permanent quota errors stop the whole job — silent
+          // NN-fallback would otherwise mask a billing issue. All other
+          // errors degrade per tile.
+          if (err instanceof QuotaExceededError) {
+            fatalError = err;
+            return;
+          }
           // Per-tile fallback: NN expansion. The conversion still
           // completes; failed tiles render the same as no-AI mode.
           upscaled.set(group.hash, nearestNeighbourUpscale(group.bytes));
@@ -230,7 +271,22 @@ export async function convertInesToPonchoAi(
   for (let i = 0; i < pumpCount; i++) pumps.push(worker());
   await Promise.all(pumps);
 
-  if (cancelled) throw new AiConvertCancelled();
+  // Fatal errors (e.g. permanent quota) still abort — there's nothing
+  // partial worth saving when the API is hard-denying us.
+  if (fatalError) throw fatalError;
+
+  // Cancellation is non-fatal: fill the remaining unresolved unique
+  // tiles with nearest-neighbour so the user gets a playable `.poncho`
+  // for whatever was upscaled before they hit Cancel.
+  if (cancelled) {
+    for (const group of groups) {
+      if (!upscaled.has(group.hash)) {
+        upscaled.set(group.hash, nearestNeighbourUpscale(group.bytes));
+        cancelledTiles++;
+      }
+    }
+    reportProgress();
+  }
 
   // Reassemble CHR: each 16-byte NES tile becomes 1024 bytes.
   const nativeChr = new Uint8Array(tileCount * 1024);
@@ -278,6 +334,8 @@ export async function convertInesToPonchoAi(
       cacheHits: cached,
       apiCalls,
       failedTiles: failed,
+      cancelledTiles,
+      cancelled,
     },
   };
 }

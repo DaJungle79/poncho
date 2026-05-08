@@ -61,6 +61,12 @@ export interface UpscaleWorkerConfig {
   onTileReady?: () => void;
   /** Override scheduler (tests). Defaults to `queueMicrotask`. */
   schedule?: (fn: () => void) => void;
+  /**
+   * Per-game prompt override forwarded to every `client.upscaleTile`
+   * call. Set via `setPrompt()` after construction so the App can
+   * build the prompt asynchronously without blocking cart load.
+   */
+  prompt?: string;
 }
 
 interface CacheEntry {
@@ -81,6 +87,7 @@ export class UpscaleWorker {
   private readonly entries = new Map<string, CacheEntry>();
   private readonly pending = new Set<string>();
   private dirty = false;
+  private prompt: string | undefined;
   /** Tiles still in-flight (for diagnostics + UI status). */
   pendingCount(): number { return this.pending.size; }
   /** Tiles upscaled and cached (for diagnostics + UI status). */
@@ -94,6 +101,7 @@ export class UpscaleWorker {
       ?? (typeof queueMicrotask !== 'undefined'
         ? (fn) => queueMicrotask(fn)
         : (fn) => Promise.resolve().then(fn));
+    this.prompt = config.prompt;
 
     if (config.seed && config.seed.model === this.client.modelId) {
       for (const e of config.seed.entries) {
@@ -165,7 +173,7 @@ export class UpscaleWorker {
         native = await this.globalCache.get(hash, this.client.modelId);
       }
       if (!native) {
-        native = await this.client.upscaleTile(nesTile, subPalette);
+        native = await this.client.upscaleTile(nesTile, subPalette, this.prompt);
         if (!native || native.length !== 1024) {
           throw new Error(`upscaler returned ${native?.length ?? 0} bytes`);
         }
@@ -189,6 +197,14 @@ export class UpscaleWorker {
 
   isDirty(): boolean { return this.dirty; }
   clearDirty(): void { this.dirty = false; }
+
+  /**
+   * Update the per-tile prompt sent on every API call. Typically
+   * invoked once after `buildGameUpscalePrompt` resolves — the App
+   * starts the worker immediately on cart load with no prompt and
+   * swaps in the game-specific one when ready.
+   */
+  setPrompt(prompt: string | undefined): void { this.prompt = prompt; }
 
   /**
    * Snapshot the current upscaled tiles as an `AiCacheSection` for

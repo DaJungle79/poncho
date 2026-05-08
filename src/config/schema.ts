@@ -42,10 +42,21 @@ export interface GeneralConfig {
   selectedConsoleId: string;
 }
 
+/**
+ * AI upscale settings (v0.4). The API key is stored locally — no
+ * server-side proxy. Empty string disables real-AI use; the runtime
+ * silently falls back to deterministic 4× nearest-neighbour.
+ */
+export interface AiConfig {
+  /** Google AI Studio key for `gemini-2.5-flash-image`. Empty = disabled. */
+  apiKey: string;
+}
+
 export interface Config {
   version: number;
   video: VideoConfig;
   audio: AudioConfig;
   input: InputConfig;
   general: GeneralConfig;
+  ai: AiConfig;
 }
