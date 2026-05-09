@@ -43,13 +43,21 @@ export interface GeneralConfig {
 }
 
 /**
- * AI upscale settings (v0.4). The API key is stored locally — no
- * server-side proxy. Empty string disables real-AI use; the runtime
- * silently falls back to deterministic 4× nearest-neighbour.
+ * AI upscale settings (v0.4). Picks one model id for CHR-ROM bake-now
+ * conversions and one for the CHR-RAM runtime worker. Both default to
+ * `nearest-neighbour` — the deterministic 4× fallback — until the user
+ * explicitly opts into a richer model. Per-model config (e.g. ONNX
+ * file URL, quantisation level, future API keys) is stored under
+ * `modelConfig[modelId]` so adding a model doesn't require a config
+ * schema migration.
  */
 export interface AiConfig {
-  /** Google AI Studio key for `gemini-2.5-flash-image`. Empty = disabled. */
-  apiKey: string;
+  /** Stable id (matches `UpscaleModel.id` in the registry). */
+  romModelId: string;
+  /** Stable id for the runtime worker. May equal `romModelId`. */
+  ramModelId: string;
+  /** Per-model arbitrary config bag. Keyed by model id. */
+  modelConfig: Record<string, Record<string, unknown>>;
 }
 
 export interface Config {

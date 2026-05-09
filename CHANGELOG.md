@@ -47,6 +47,41 @@ In progress — v0.4.0 (AI-driven CHR upscaling via nanobanana / Gemini 2.5 Flas
 - **Cancel keeps the partial bake** — pressing Cancel mid-conversion no longer throws away the work. `convertInesToPonchoAi` fills remaining tiles with nearest-neighbour, assembles the `.poncho`, and returns with `notes.cancelled = true` + `notes.cancelledTiles`. The web UI saves the partial cartridge and shows e.g. "Cancelled at 50/512 tiles — partial saved." Useful for sampling: bake the first N tiles, hit Cancel, play the half-baked cartridge to inspect AI output before committing to the full run.
 - **Fix: pv3 collapsed to pv2 in AI bake** — the bake-now neutral palette `[0x00, 0x10, 0x20, 0x30]` had `0x20` and `0x30` both at pure white in the canonical NES master palette. The primer image sent to Gemini therefore showed pv2 and pv3 as identical pixels; the snap-back step couldn't recover the original distinction and silently mapped every pv3 to pv2, breaking colour-3 in every AI-baked tile. Replaced with four hue-distinct indices `[0x0f, 0x16, 0x2a, 0x12]` (black / red / green / blue) and added a regression test that asserts all four entries map to RGB-distinct colours in the canonical master palette.
 
+### Changed — v0.4 Phase 4.5 (stabilisation): bake-now output shape rework
+
+The previous bake-now output (`upscaledMode = false`, 64×-larger CHR, no
+cache section) was structurally wrong for iNES-derived games: PpuUltra's
+native render path doesn't honour `PPUCTRL.bgPatternBase`, doesn't go
+through the mapper for CHR banking, and uses 8-byte sprite OAM with
+512-byte $4014 DMA. Any cart that switched CHR banks (CNROM, MMC1, MMC3,
+…) or used the second pattern table (most games) rendered scrambled.
+
+Bake-now now produces an **upscaled-mode** `.poncho` with the original
+NES CHR verbatim and a populated AI cache section. PpuUltra's existing
+upscaled-mode resolver path (built in Phase 3 for CHR-RAM) splices the
+AI tiles in per-tile during render — banking, pattern-base, and 4-byte
+OAM all work correctly because the cart still looks NES-shape to the
+mapper + PPU.
+
+- `convertInesToPonchoAi` outputs `upscaledMode: true`, `aiCachePresent: true`, `chr = ines.chrRom` verbatim, AI cache section populated with one entry per unique tile.
+- `App.maybeStartAiWorker` now installs the resolver for any upscaled-mode cart with an AI cache section (not just CHR-RAM). Without an API key, the worker uses `MockUpscaleClient` so seeded AI tiles still render; periodic 60 s flush + write-back is still gated on CHR-RAM (no point polluting a baked CHR-ROM cart with mock NN content on a miss).
+- New shared `TILE_HASH_PALETTE` constant in `tile-cache.ts` — bake-now and the runtime worker now hash with the *same* fixed palette, so a baked tile's hash matches the runtime resolver's lookup hash. Drops the per-render-context palette discrimination from the cache key (palette is still passed to the AI client as primer context for visual fidelity).
+- `UpscaleWorker` no longer drops seeded entries on `model` mismatch — AI-baked carts loaded without an API key still render their seeded tiles via the mock client.
+- **Tighten upscale prompt against content invention** — Bomberman BG decoration tiles were rendering as tiny full Bomberman characters because the per-game prompt said "encourage tasteful HD-detail additions" and the model used the game name to invent subjects in every tile. Both `buildMetaPrompt` (per-game directive) and `DEFAULT_PROMPT` (fallback) now explicitly forbid content invention: the prompt frames each input as "one small fragment of pixel art — likely abstract or partial, NOT a complete scene or character" and tells the model not to add characters, faces, objects, or "details". Added a regression test that rejects future relaxations of this rule.
+- **Per-tile prompt now carries deterministic game context + HD-remake framing** — previously the per-tile prompt was just whatever 3-5 sentence directive Gemini's text model wrote (which mentioned game info only at Gemini's discretion). Now `buildGameUpscalePrompt` always composes a deterministic preamble — structured `RomMeta` line ("Castlevania (Konami, 1986, Platformer / Horror). USA · Rev A.") + an "imagine ONE tile from a hypothetical modern HD remake of <game>…" framing + the anti-invention guard — and prepends it to whatever creative seasoning Gemini provides. Network failures fall back to the preamble alone (still useful) instead of returning null. The Gemini meta-prompt has been retuned to ask for *complementary* creative seasoning (art-direction era, dominant materials, lighting/mood, palette character) since the structured context is now reliably in place. Encourages the model to imagine each tile as a fragment of an HD remake of the specific game without inventing new subjects.
+- **Encourage HD detail within each colour region (without inventing new content)** — Phase 4.5's "do not invent" pass overcorrected and stripped out shading/gradient instructions too. The prompts now explicitly distinguish "ENCOURAGED: refining edges, subtle shading, hinted material (stone / metal / cloth), depth/bevel/glow consistent with the game's aesthetic" from "FORBIDDEN: new shapes, characters, faces, logos, scenes, objects, recognisable subjects". Both `buildMetaPrompt` and `DEFAULT_PROMPT` updated; the preamble explicitly invokes the HD-remake aesthetic.
+
+### Changed — v0.4 Phase 4.7: NanoBanana strip + model-registry pivot
+
+The Gemini 2.5 Flash Image cloud-API path has been removed entirely. The supporting infrastructure built for it survives unchanged — the AI cache section format, the `UpscaleClient` boundary, the `UpscaleWorker`, the PpuUltra resolver hook, the bake-now pipeline, the repack/write-back flow, the tile cache + hashing — these are all generic and now slot behind a model registry.
+
+- **New: `src/convert/upscale-registry.ts`** — `UpscaleModel` interface (id, label, description, `cacheModelId`, `supportedWorkflows`, `create()` factory) plus a small set of helpers (`listUpscaleModels`, `getUpscaleModel`, `resolveUpscaleModel`, `createUpscaleClient`). Adding a new model (e.g. ESRGAN on WebGPU) is one file: implement `UpscaleClient`, allocate a `cacheModelId` in `ai-cache.ts`, register the model definition. Only the deterministic 4× nearest-neighbour fallback ships in this phase; real models land in Phase 5.
+- **Removed**: `NanoBananaClient` + `RateLimitError` + `QuotaExceededError` + the inline NES master palette + the per-tile PNG codec from `upscale-client.ts`. Removed `src/convert/prompt-builder.ts` (Gemini-text-specific) and its tests. Removed `tests/convert/upscale-client-retry.test.ts` and `tests/integration/ai-upscale-bombjack.test.ts`. Removed `customPrompt` from `convertInesToPonchoAi`, `prompt` from `UpscaleWorker`, and the optional 3rd `prompt` argument from `UpscaleClient.upscaleTile`. Removed `App.applyAiGamePrompt`. Removed `AI_CACHE_MODEL_NANOBANANA_25_FLASH`.
+- **Config schema change**: `config.ai` is now `{ romModelId, ramModelId, modelConfig: Record<id, blob> }` (was `{ apiKey: string }`). Defaults: both ids set to `"nearest-neighbour"`. Per-model arbitrary config lives under `modelConfig[id]` so a future model can carry its own settings without a schema migration.
+- **Settings UI change**: replaced the masked Gemini API-key field with two dropdowns — "CHR-ROM (bake-now)" and "CHR-RAM (runtime)" — populated from the registry. A live description blurb beneath the dropdowns explains the trade-off the user just picked. Workflow-incompatible (model, workflow) pairs are greyed out.
+- **App / RomsPanel / CLI**: bake-now + runtime worker now construct their client via `createUpscaleClient(modelId, workflow, modelConfig)`. Modal label reflects the selected model + flags fallback when the requested model is unavailable. CLI `--ai` always runs the deterministic NN client (a Node-side model runner is a future addition).
+- **Tests**: added `tests/convert/upscale-registry.test.ts` (8 tests). 443 tests total, typecheck clean.
+
 ## [0.3.0] — 2026-05-07
 
 > Poncho-NES native runtime + iNES converter. The runtime gains everything needed

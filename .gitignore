@@ -4,6 +4,9 @@ dist
 coverage
 tsconfig.tsbuildinfo
 
+# Scratch outputs from debug scripts / probes (e.g. tests/integration/ai-upscale-*).
+tmp/
+
 # OS noise
 **/.DS_Store
 *.log

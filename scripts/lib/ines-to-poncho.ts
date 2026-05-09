@@ -27,8 +27,13 @@ export {
 
 export {
   MockUpscaleClient,
-  NanoBananaClient,
   UpscaleError,
-  type NanoBananaConfig,
   type UpscaleClient,
 } from '../../src/convert/upscale-client';
+
+export {
+  NEAREST_NEIGHBOUR_MODEL,
+  createUpscaleClient,
+  listUpscaleModels,
+  type UpscaleModel,
+} from '../../src/convert/upscale-registry';

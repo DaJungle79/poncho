@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  AI_CACHE_MODEL_NANOBANANA_25_FLASH,
   AI_CACHE_VERSION,
   type AiCacheSection,
 } from '../../src/core/cart-poncho/ai-cache';
 import { PonchoCartridge } from '../../src/core/cart-poncho/cartridge';
 import { parsePonchoRom } from '../../src/core/cart-poncho/header';
 import { assemblePonchoRom, makePalette } from '../../src/core/cart-poncho/writer';
+
+/** Stand-in numeric model id for test fixtures. */
+const SAMPLE_REGISTERED_MODEL = 1;
 
 function makeSection(entryCount: number): AiCacheSection {
   const entries = [];
@@ -22,7 +24,7 @@ function makeSection(entryCount: number): AiCacheSection {
   }
   return {
     formatVersion: AI_CACHE_VERSION,
-    model: AI_CACHE_MODEL_NANOBANANA_25_FLASH,
+    model: SAMPLE_REGISTERED_MODEL,
     entries,
   };
 }
@@ -77,7 +79,7 @@ describe('PonchoROM with AI cache section — full round-trip', () => {
     const cart = new PonchoCartridge(rom);
     expect(cart.aiCache).not.toBeNull();
     expect(cart.aiCache!.entries.length).toBe(5);
-    expect(cart.aiCache!.model).toBe(AI_CACHE_MODEL_NANOBANANA_25_FLASH);
+    expect(cart.aiCache!.model).toBe(SAMPLE_REGISTERED_MODEL);
     // Verify the bytes match the original entries.
     for (let i = 0; i < 5; i++) {
       expect(cart.aiCache!.entries[i]!.hash).toEqual(aiCache.entries[i]!.hash);

@@ -15,8 +15,7 @@ import { Nes } from '../../console/nes';
 import { PonchoNes } from '../../console/poncho-nes';
 import { ALL_SPECS, NES_SPEC, PONCHO_NES_SPEC } from '../../console/specs';
 import { repackPonchoWithAiCache } from '../../core/cart-poncho/repack';
-import { MockUpscaleClient, NanoBananaClient } from '../../convert/upscale-client';
-import { buildGameUpscalePrompt } from '../../convert/prompt-builder';
+import { createUpscaleClient } from '../../convert/upscale-registry';
 import { UpscaleWorker } from '../../runtime/upscale-worker';
 import type { ConsoleSpec } from '../../console/console';
 import { KeyboardSource } from '../../core/input/keyboard-source';
@@ -138,9 +137,9 @@ export class App {
       filePicker: platform.filePicker,
       onLoaded: (rom) => this.loadRom(rom),
       onStatus: (text) => this.setStatus(text),
-      getApiKey: () => this.config.get().ai.apiKey,
-      onConfigureApiKey: () => this.openSettingsAndFocusKey(),
-      lookupRomMeta: (rom) => this.romInfo.lookup(rom),
+      getRomModelId: () => this.config.get().ai.romModelId,
+      getModelConfig: (id) => this.config.get().ai.modelConfig[id] ?? {},
+      onConfigureModels: () => this.openSettingsPanel(),
     });
     this.stack.registerL2(this.romsPanel);
     const initialSpec = ALL_SPECS.find((s) => s.id === this.config.get().general.selectedConsoleId) ?? ALL_SPECS[0]!;
@@ -293,14 +292,9 @@ export class App {
       this.platform.audio.setVolume(this.config.get().audio.volume);
       this.platform.audio.setMuted(this.config.get().audio.muted);
       // Async, non-blocking — title appears once the lookup resolves.
-      // Same lookup also feeds the runtime upscale worker's per-game
-      // prompt, so we don't lookup twice.
       this.romInfo
         .lookup(rom)
-        .then((meta) => {
-          this.setGameTitle(meta);
-          void this.applyAiGamePrompt(meta);
-        })
+        .then((meta) => this.setGameTitle(meta))
         .catch((err) => {
           log.warn('rom', 'rominfo lookup failed', err);
           this.setGameTitle({
@@ -420,13 +414,10 @@ export class App {
     document.documentElement.dataset.statusBar = visible ? 'visible' : 'hidden';
   }
 
-  /** Deep-link target for "Configure key" affordances in other panels. */
-  private openSettingsAndFocusKey(): void {
+  /** Deep-link target for "Configure models" affordances in other panels. */
+  private openSettingsPanel(): void {
     this.stack.openL2('settings');
     this.sidebar.syncActive();
-    // Settings.onShow runs synchronously and populates the input; defer
-    // the focus call so it sees the freshly-mounted DOM.
-    queueMicrotask(() => this.settingsPanel.focusAiKey());
   }
 
   // ----- AI upscale worker lifecycle ----------------------------------------
@@ -448,15 +439,25 @@ export class App {
     const cart = this.nes.cartridge;
     if (!cart) return;
     if (!cart.layout.header.flags.upscaledMode) return;
-    if (!cart.chrIsRam) return;
+    // Two scenarios trigger the worker:
+    //   - CHR-RAM upscaled cart (runtime PRG-uploaded tiles get baked
+    //     in the background; user needs an API key)
+    //   - Any cart with a pre-populated AI cache section (CHR-ROM that
+    //     was AI-baked at conversion time → resolver pulls from cache,
+    //     no API calls needed; misses fall back to NN via MockClient)
+    const hasCache = cart.aiCache !== null && cart.aiCache.entries.length > 0;
+    if (!cart.chrIsRam && !hasCache) return;
 
-    const apiKey = this.config.get().ai.apiKey;
-    let client;
-    try {
-      client = apiKey ? new NanoBananaClient({ apiKey }) : new MockUpscaleClient();
-    } catch (err) {
-      log.warn('rom', 'AI client init failed; runtime upscale disabled.', err);
-      return;
+    const ai = this.config.get().ai;
+    const { client, model, usedFallback } = createUpscaleClient(
+      ai.ramModelId,
+      'ram-runtime',
+      ai.modelConfig[ai.ramModelId] ?? {},
+    );
+    if (usedFallback) {
+      log.warn('rom', `runtime upscale: requested model "${ai.ramModelId}" unavailable; falling back to "${model.id}"`);
+    } else {
+      log.info('rom', `runtime upscale: using model "${model.id}"`);
     }
 
     const worker = new UpscaleWorker({
@@ -467,16 +468,24 @@ export class App {
       // automatically. Hook left null to avoid extra invalidation work.
     });
     this.aiWorker = worker;
-    this.aiCartBytes = rom.data;
-    this.aiCartName = this.shouldPersistAiCache(rom) ? rom.name : null;
+    // Only enable write-back for CHR-RAM carts. AI-baked CHR-ROM carts
+    // ship with their cache pre-populated; any "fresh" tile the worker
+    // produces during play would be a mock NN fallback for a tile that
+    // wasn't in the bake — flushing that would pollute the cart with
+    // garbage. CHR-RAM is where new genuine AI work happens.
+    const persistEnabled = cart.chrIsRam && this.shouldPersistAiCache(rom);
+    this.aiCartBytes = persistEnabled ? rom.data : null;
+    this.aiCartName = persistEnabled ? rom.name : null;
 
     this.nes.ppu.setUpscaledTileResolver((nesTile, subPalette) =>
       worker.resolveSync(nesTile, subPalette));
 
-    // Periodic flush — every 60 s. Plan calls this out as one of three
-    // write-back triggers (the others: cart unload + manual button).
+    // Periodic flush — every 60 s. Only for CHR-RAM, since baked
+    // CHR-ROM has nothing meaningful to write back.
     if (this.aiFlushTimer) clearInterval(this.aiFlushTimer);
-    this.aiFlushTimer = setInterval(() => { void this.flushAiCache(); }, 60_000);
+    if (persistEnabled) {
+      this.aiFlushTimer = setInterval(() => { void this.flushAiCache(); }, 60_000);
+    }
   }
 
   /**
@@ -534,41 +543,6 @@ export class App {
     return rom.source.startsWith('browser:') || rom.source.startsWith('file:');
   }
 
-  /**
-   * Build a per-game upscale prompt and apply it to the active runtime
-   * upscale worker. No-op when there's no worker (cart isn't eligible
-   * for runtime upscale) or no API key (text Gemini call would fail).
-   * In-memory cached so subsequent loads of the same title skip the call.
-   */
-  private async applyAiGamePrompt(meta: RomMeta): Promise<void> {
-    const worker = this.aiWorker;
-    if (!worker) return;
-    const apiKey = this.config.get().ai.apiKey;
-    if (!apiKey) return;
-    try {
-      const prompt = await buildGameUpscalePrompt({
-        apiKey,
-        game: {
-          title: meta.title,
-          subtitle: meta.subtitle ?? null,
-          ...(meta.year !== undefined ? { year: meta.year } : {}),
-          ...(meta.publisher ? { publisher: meta.publisher } : {}),
-          ...(meta.developer ? { developer: meta.developer } : {}),
-          ...(meta.genre ? { genre: meta.genre } : {}),
-        },
-      });
-      // The worker may have been torn down while we awaited (cart eject).
-      if (this.aiWorker !== worker) return;
-      worker.setPrompt(prompt ?? undefined);
-      if (prompt) {
-        log.info('rom', `runtime worker: per-game prompt applied for "${meta.title}"`);
-      } else {
-        log.info('rom', `runtime worker: keeping default prompt (build returned null) for "${meta.title}"`);
-      }
-    } catch (err) {
-      log.warn('rom', 'AI game-prompt build failed', err);
-    }
-  }
 }
 
 function lucide(name: string): HTMLElement {

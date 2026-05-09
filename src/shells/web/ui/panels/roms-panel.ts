@@ -1,15 +1,17 @@
 import { gameIcon, mountLucideIcons } from '../icons';
 import type { Panel } from '../panel-stack';
 import type { FilePicker, RomLibrary, ServerRomLoader } from '../../../../platform/types';
-import type { LoadedRom, RomMeta, StoredRomEntry } from '../../../../domain/rom';
+import type { LoadedRom, StoredRomEntry } from '../../../../domain/rom';
 import { ConvertError, convertInesToPoncho } from '../../../../convert/ines-to-poncho';
 import {
   AiConvertCancelled,
   convertInesToPonchoAi,
   type AiConvertProgress,
 } from '../../../../convert/ines-to-poncho-ai';
-import { MockUpscaleClient, NanoBananaClient, QuotaExceededError } from '../../../../convert/upscale-client';
-import { buildGameUpscalePrompt } from '../../../../convert/prompt-builder';
+import {
+  createUpscaleClient,
+  type UpscaleModelConfig,
+} from '../../../../convert/upscale-registry';
 
 export interface RomsPanelDeps {
   /** Persistent local library — uploaded ROMs (web: IndexedDB). */
@@ -22,16 +24,12 @@ export interface RomsPanelDeps {
   onLoaded: (rom: LoadedRom) => void | Promise<void>;
   /** Optional callback for transient status messages (routed to the bottom status bar). */
   onStatus?: (text: string) => void;
-  /** Read the configured Gemini API key. Empty string = no key. */
-  getApiKey?: () => string;
-  /** Open Settings + focus the API key input. Used by the "Configure key" hint. */
-  onConfigureApiKey?: () => void;
-  /**
-   * Resolve display metadata (title / genre / year / publisher) for a
-   * picked ROM. Used by the bake-now flow to build a game-specific
-   * upscale prompt. Falls back to filename-based metadata internally.
-   */
-  lookupRomMeta?: (rom: LoadedRom) => Promise<RomMeta>;
+  /** Active CHR-ROM bake-now model id from `config.ai.romModelId`. */
+  getRomModelId?: () => string;
+  /** Per-model config blob (`config.ai.modelConfig[id]`). */
+  getModelConfig?: (modelId: string) => UpscaleModelConfig;
+  /** Open Settings → AI section so the user can pick a different model. */
+  onConfigureModels?: () => void;
 }
 
 /**
@@ -92,8 +90,8 @@ export class RomsPanel implements Panel {
             <span>Use AI upscale (CHR-ROM games only)</span>
           </label>
           <p class="rom-ai-hint" data-ai-hint hidden>
-            No Gemini API key set — converts will use the deterministic
-            4× fallback.
+            No upscale model selected — converts will use the deterministic
+            4× nearest-neighbour fallback.
             <button type="button" class="rom-ai-configure" data-ai-configure>Configure</button>
           </p>
         </section>
@@ -122,7 +120,7 @@ export class RomsPanel implements Panel {
     this.aiCheckbox = this.root.querySelector<HTMLInputElement>('[data-ai-checkbox]')!;
     this.aiHint = this.root.querySelector<HTMLElement>('[data-ai-hint]')!;
     this.root.querySelector<HTMLButtonElement>('[data-ai-configure]')!
-      .addEventListener('click', () => this.deps.onConfigureApiKey?.());
+      .addEventListener('click', () => this.deps.onConfigureModels?.());
 
     // Hide the Server section on platforms that have no dev-server-style
     // ROM loader (e.g. Electron). The platform passes `serverRoms: null`
@@ -141,8 +139,9 @@ export class RomsPanel implements Panel {
 
   private syncAiHint(): void {
     const aiVisible = !this.aiToggleWrap.hidden;
-    const hasKey = (this.deps.getApiKey?.() ?? '').length > 0;
-    this.aiHint.hidden = !aiVisible || hasKey;
+    const modelId = this.deps.getRomModelId?.() ?? 'nearest-neighbour';
+    const usingFallback = modelId === 'nearest-neighbour';
+    this.aiHint.hidden = !aiVisible || !usingFallback;
   }
 
   /** Update panel chrome and ROM lists for the newly-active console. */
@@ -383,13 +382,7 @@ export class RomsPanel implements Panel {
         summary = `(mapper ${n.sourceMapper}, ${chrLabel}, PRG ${n.prgKb} KB)`;
       }
     } catch (err) {
-      if (err instanceof QuotaExceededError) {
-        this.setStatus(
-          'Gemini quota exhausted — the free tier has 0 requests/day for ' +
-          'the image model. Enable billing on your Google Cloud project, ' +
-          'or untick "Use AI upscale" to convert with the 4× fallback.',
-        );
-      } else if (err instanceof ConvertError) {
+      if (err instanceof ConvertError) {
         this.setStatus(`Conversion failed: ${err.message}`);
       } else {
         this.setStatus(`Conversion failed: ${(err as Error).message}`);
@@ -411,56 +404,30 @@ export class RomsPanel implements Panel {
 
   /**
    * Run the AI bake-now pipeline behind a modal progress dialog. Returns
-   * `null` if the user cancelled. Picks the right upscale client based
-   * on whether a Gemini API key is configured (window-scoped for now —
-   * a settings panel field is a Phase 4 polish item).
+   * `null` if the user cancelled. The active model id comes from
+   * `config.ai.romModelId`; the registry resolves it to a client (with
+   * automatic fallback to nearest-neighbour if the model is unavailable).
    */
   private async runAiConvert(
     inesBytes: Uint8Array,
     baseTitle: string,
-    rom: LoadedRom,
+    _rom: LoadedRom,
   ): Promise<Awaited<ReturnType<typeof convertInesToPonchoAi>> | null> {
-    const apiKey = this.deps.getApiKey?.() ?? '';
-    const client = apiKey
-      ? new NanoBananaClient({ apiKey })
-      : new MockUpscaleClient();
+    const modelId = this.deps.getRomModelId?.() ?? 'nearest-neighbour';
+    const modelConfig = this.deps.getModelConfig?.(modelId) ?? {};
+    const { client, model, usedFallback } = createUpscaleClient(modelId, 'rom-bake', modelConfig);
 
+    const modalLabel = usedFallback
+      ? `${model.label} (fallback — "${modelId}" unavailable)`
+      : model.label;
     const modal = createAiProgressModal(
-      apiKey ? 'Gemini 2.5 Flash Image' : 'Nearest-neighbour (no API key)',
-      apiKey ? null : (() => this.deps.onConfigureApiKey?.()),
+      modalLabel,
+      usedFallback ? (() => this.deps.onConfigureModels?.()) : null,
     );
     document.body.appendChild(modal.root);
 
     const ctrl = new AbortController();
     modal.onCancel(() => ctrl.abort());
-
-    // Build the per-game upscale prompt before starting the bake.
-    // Cheap (single text-Gemini call) and cached per title in memory.
-    // Fails open: null prompt → client uses its default. Inspectable via
-    // devtools console at log level `rom:info`.
-    let customPrompt: string | undefined;
-    if (apiKey) {
-      try {
-        const meta = this.deps.lookupRomMeta
-          ? await this.deps.lookupRomMeta(rom)
-          : { title: baseTitle, subtitle: null, source: 'filename' as const };
-        const built = await buildGameUpscalePrompt({
-          apiKey,
-          game: {
-            title: meta.title || baseTitle,
-            subtitle: meta.subtitle ?? null,
-            ...(meta.year !== undefined ? { year: meta.year } : {}),
-            ...(meta.publisher ? { publisher: meta.publisher } : {}),
-            ...(meta.developer ? { developer: meta.developer } : {}),
-            ...(meta.genre ? { genre: meta.genre } : {}),
-          },
-          signal: ctrl.signal,
-        });
-        customPrompt = built ?? undefined;
-      } catch {
-        // Already logged inside buildGameUpscalePrompt; just fall through.
-      }
-    }
 
     try {
       const result = await convertInesToPonchoAi(inesBytes, {
@@ -468,7 +435,6 @@ export class RomsPanel implements Panel {
         client,
         signal: ctrl.signal,
         onProgress: (p) => modal.update(p),
-        ...(customPrompt ? { customPrompt } : {}),
       });
       modal.complete();
       return result;

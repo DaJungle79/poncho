@@ -37,6 +37,7 @@ import {
   type AiCacheSection,
 } from '../core/cart-poncho/ai-cache';
 import {
+  TILE_HASH_PALETTE,
   hashTileSync,
   hashToHex,
   hexToHash,
@@ -61,12 +62,6 @@ export interface UpscaleWorkerConfig {
   onTileReady?: () => void;
   /** Override scheduler (tests). Defaults to `queueMicrotask`. */
   schedule?: (fn: () => void) => void;
-  /**
-   * Per-game prompt override forwarded to every `client.upscaleTile`
-   * call. Set via `setPrompt()` after construction so the App can
-   * build the prompt asynchronously without blocking cart load.
-   */
-  prompt?: string;
 }
 
 interface CacheEntry {
@@ -87,7 +82,6 @@ export class UpscaleWorker {
   private readonly entries = new Map<string, CacheEntry>();
   private readonly pending = new Set<string>();
   private dirty = false;
-  private prompt: string | undefined;
   /** Tiles still in-flight (for diagnostics + UI status). */
   pendingCount(): number { return this.pending.size; }
   /** Tiles upscaled and cached (for diagnostics + UI status). */
@@ -101,17 +95,20 @@ export class UpscaleWorker {
       ?? (typeof queueMicrotask !== 'undefined'
         ? (fn) => queueMicrotask(fn)
         : (fn) => Promise.resolve().then(fn));
-    this.prompt = config.prompt;
 
-    if (config.seed && config.seed.model === this.client.modelId) {
+    if (config.seed) {
+      // Always load the seed regardless of `seed.model` — even when the
+      // active client's modelId differs. Reasons:
+      //   - AI-baked CHR-ROM carts ship a NanoBanana cache; users
+      //     without an API key load with MockClient, but we still want
+      //     them to see the AI tiles.
+      //   - Misses still go through the active client; on success the
+      //     new entry overwrites by hash. Stale model entries get
+      //     replaced lazily, never destructively purged.
       for (const e of config.seed.entries) {
         this.byHash.set(hashToHex(e.hash), e.nativeTile);
       }
     }
-    // Note: seed entries from a different model are deliberately *not*
-    // dropped from the on-disk file. We just don't surface them at
-    // runtime. They survive on disk until overwritten — switching models
-    // back recovers the old cache.
   }
 
   /**
@@ -137,7 +134,12 @@ export class UpscaleWorker {
     // Disk-seeded entries live in `byHash`. Hash sync once, promote to
     // `byRaw` if found, then mirror in `entries` so write-back keeps
     // the seeded tile (with its full nesTile + palette context).
-    const hash = hashTileSync(nesTile, subPalette);
+    //
+    // Cache key is `(tile bytes, TILE_HASH_PALETTE)` — same fixed
+    // neutral palette used by `convertInesToPonchoAi`, so bake-now
+    // tiles hash to the same key the resolver looks up. The actual
+    // runtime sub-palette is forwarded only as AI primer context.
+    const hash = hashTileSync(nesTile, TILE_HASH_PALETTE);
     const seeded = this.byHash.get(hash);
     if (seeded) {
       this.byRaw.set(key, seeded);
@@ -173,7 +175,7 @@ export class UpscaleWorker {
         native = await this.globalCache.get(hash, this.client.modelId);
       }
       if (!native) {
-        native = await this.client.upscaleTile(nesTile, subPalette, this.prompt);
+        native = await this.client.upscaleTile(nesTile, subPalette);
         if (!native || native.length !== 1024) {
           throw new Error(`upscaler returned ${native?.length ?? 0} bytes`);
         }
@@ -197,14 +199,6 @@ export class UpscaleWorker {
 
   isDirty(): boolean { return this.dirty; }
   clearDirty(): void { this.dirty = false; }
-
-  /**
-   * Update the per-tile prompt sent on every API call. Typically
-   * invoked once after `buildGameUpscalePrompt` resolves — the App
-   * starts the worker immediately on cart load with no prompt and
-   * swaps in the game-specific one when ready.
-   */
-  setPrompt(prompt: string | undefined): void { this.prompt = prompt; }
 
   /**
    * Snapshot the current upscaled tiles as an `AiCacheSection` for

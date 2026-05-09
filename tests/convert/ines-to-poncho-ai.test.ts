@@ -82,16 +82,20 @@ function makeInesWithDuplicateTiles(): Uint8Array {
 // ---------------------------------------------------------------------------
 
 describe('convertInesToPonchoAi — happy path with MockUpscaleClient', () => {
-  it('produces a native-mode .poncho with 64×-larger CHR', async () => {
+  it('produces an upscaled-mode .poncho with the original CHR + AI cache section', async () => {
     const ines = makeInes();
     const result = await convertInesToPonchoAi(ines);
 
     const layout = parsePonchoRom(result.poncho);
-    expect(layout.header.flags.upscaledMode).toBe(false);
-    expect(layout.header.flags.aiCachePresent).toBe(false);
-    expect(layout.chrByteLength).toBe(512 * 1024); // 512 tiles × 1024 bytes
+    // Bake-now keeps the cart NES-shape so PPUCTRL pattern-base + mapper
+    // CHR banking + 4-byte OAM all work; upscaled tiles ride along in
+    // the AI cache section, spliced in by the runtime resolver.
+    expect(layout.header.flags.upscaledMode).toBe(true);
+    expect(layout.header.flags.aiCachePresent).toBe(true);
+    // CHR is the original NES bytes verbatim (1 bank = 8 KB), not 64×.
+    expect(layout.chrByteLength).toBe(8 * 1024);
 
-    expect(result.notes.chrKb).toBe(512); // 512 tiles × 1 KB each
+    expect(result.notes.chrKb).toBe(8);
     expect(result.notes.chrRamKb).toBe(0);
   });
 
@@ -200,9 +204,8 @@ describe('convertInesToPonchoAi — abort signal preserves partial work', () => 
     expect(result.notes.cancelledTiles).toBeGreaterThan(0);
     expect(result.notes.apiCalls).toBeGreaterThan(0);
     expect(result.notes.apiCalls).toBeLessThan(result.notes.uniqueTiles);
-    // Source iNES has 1 CHR bank (8 KB = 512 NES tiles). Each tile
-    // becomes a 1024-byte native tile in the output → 512 KB.
-    expect(result.notes.chrKb).toBe(512);
+    // CHR is the original NES bytes verbatim (1 bank = 8 KB).
+    expect(result.notes.chrKb).toBe(8);
     // The output is still a parseable .poncho.
     expect(result.poncho.length).toBeGreaterThan(0);
   });
@@ -234,40 +237,6 @@ describe('convertInesToPonchoAi — error paths', () => {
   it('rejects unsupported mappers', async () => {
     const ines = makeInes({ mapper: 5 });
     await expect(convertInesToPonchoAi(ines)).rejects.toThrow(/mapper 5/);
-  });
-});
-
-describe('convertInesToPonchoAi — customPrompt forwarding', () => {
-  it('passes customPrompt to client.upscaleTile on every call', async () => {
-    const seen: string[] = [];
-    const client: UpscaleClient = {
-      modelId: 99,
-      async upscaleTile(tile, palette, prompt) {
-        seen.push(prompt ?? '<undefined>');
-        return new MockUpscaleClient().upscaleTile(tile, palette);
-      },
-    };
-    const ines = makeInes();
-    const result = await convertInesToPonchoAi(ines, {
-      client,
-      customPrompt: 'CUSTOM_PROMPT_X',
-    });
-    // Every API call (one per unique tile) should have seen the prompt.
-    expect(seen.length).toBe(result.notes.uniqueTiles);
-    for (const p of seen) expect(p).toBe('CUSTOM_PROMPT_X');
-  });
-
-  it('omitting customPrompt forwards undefined to the client', async () => {
-    const seen: Array<string | undefined> = [];
-    const client: UpscaleClient = {
-      modelId: 99,
-      async upscaleTile(tile, palette, prompt) {
-        seen.push(prompt);
-        return new MockUpscaleClient().upscaleTile(tile, palette);
-      },
-    };
-    await convertInesToPonchoAi(makeInes(), { client });
-    expect(seen.every((p) => p === undefined)).toBe(true);
   });
 });
 

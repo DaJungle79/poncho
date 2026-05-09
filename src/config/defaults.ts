@@ -37,6 +37,8 @@ export const DEFAULT_CONFIG: Config = {
     selectedConsoleId: 'nes',
   },
   ai: {
-    apiKey: '',
+    romModelId: 'nearest-neighbour',
+    ramModelId: 'nearest-neighbour',
+    modelConfig: {},
   },
 };

@@ -1,5 +1,6 @@
 import type { Config, ThemeId } from '../../../../config/schema';
 import type { ConfigStore } from '../../../../config/store';
+import { listUpscaleModels } from '../../../../convert/upscale-registry';
 import { mountLucideIcons } from '../icons';
 import type { Panel } from '../panel-stack';
 
@@ -34,8 +35,8 @@ export class SettingsPanel implements Panel {
   private readonly volumeRange: HTMLInputElement;
   private readonly muteCheckbox: HTMLInputElement;
   private readonly statusBarCheckbox: HTMLInputElement;
-  private readonly aiKeyInput: HTMLInputElement;
-  private readonly aiKeyToggleVisibility: HTMLButtonElement;
+  private readonly aiRomSelect: HTMLSelectElement;
+  private readonly aiRamSelect: HTMLSelectElement;
 
   constructor(private readonly deps: SettingsPanelDeps) {
     this.root = document.createElement('section');
@@ -110,35 +111,21 @@ export class SettingsPanel implements Panel {
         <section class="settings-group">
           <h3><i data-lucide="sparkles"></i><span>AI upscale</span></h3>
           <p class="settings-hint">
-            Powers the "Use AI upscale" workflow on Poncho-NES — bake-now
-            for CHR-ROM games and live upscale for CHR-RAM games. Without
-            a key, the runtime falls back to 4× nearest-neighbour.
+            Pick the upscale model used for Poncho-NES tiles. CHR-ROM
+            (bake-now at conversion) and CHR-RAM (runtime worker, tiles
+            pop in during play) can use the same model or different
+            ones — typically you want a heavier model for ROM and a
+            lighter one for RAM.
           </p>
           <label class="settings-row settings-row-stack">
-            <span>Gemini API key</span>
-            <span class="settings-key-row">
-              <input
-                type="password"
-                data-ai-key
-                autocomplete="off"
-                spellcheck="false"
-                placeholder="paste your key…"
-              />
-              <button
-                type="button"
-                class="settings-key-eye"
-                data-ai-key-toggle
-                title="Show / hide key"
-                aria-label="Show / hide key"
-              ><i data-lucide="eye"></i></button>
-            </span>
+            <span>CHR-ROM (bake-now)</span>
+            <select data-ai-rom></select>
           </label>
-          <p class="settings-hint">
-            Get a key at
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com</a>.
-            Stored locally in your browser; never sent anywhere except the
-            Gemini endpoint when you trigger an upscale.
-          </p>
+          <label class="settings-row settings-row-stack">
+            <span>CHR-RAM (runtime)</span>
+            <select data-ai-ram></select>
+          </label>
+          <p class="settings-hint" data-ai-model-hint></p>
         </section>
 
         <section class="settings-group">
@@ -163,10 +150,26 @@ export class SettingsPanel implements Panel {
     this.volumeRange = this.root.querySelector<HTMLInputElement>('[data-volume]')!;
     this.muteCheckbox = this.root.querySelector<HTMLInputElement>('[data-mute]')!;
     this.statusBarCheckbox = this.root.querySelector<HTMLInputElement>('[data-status-bar]')!;
-    this.aiKeyInput = this.root.querySelector<HTMLInputElement>('[data-ai-key]')!;
-    this.aiKeyToggleVisibility = this.root.querySelector<HTMLButtonElement>('[data-ai-key-toggle]')!;
+    this.aiRomSelect = this.root.querySelector<HTMLSelectElement>('[data-ai-rom]')!;
+    this.aiRamSelect = this.root.querySelector<HTMLSelectElement>('[data-ai-ram]')!;
+    this.populateAiSelectors();
 
     this.bindEvents();
+  }
+
+  private populateAiSelectors(): void {
+    const models = listUpscaleModels();
+    for (const select of [this.aiRomSelect, this.aiRamSelect]) {
+      select.innerHTML = '';
+      const workflow = select === this.aiRomSelect ? 'rom-bake' : 'ram-runtime';
+      for (const m of models) {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.label;
+        opt.disabled = !m.supportedWorkflows.includes(workflow);
+        select.appendChild(opt);
+      }
+    }
   }
 
   onShow(): void {
@@ -177,7 +180,9 @@ export class SettingsPanel implements Panel {
     this.volumeRange.value = String(Math.round(cfg.audio.volume * 100));
     this.muteCheckbox.checked = cfg.audio.muted;
     this.statusBarCheckbox.checked = cfg.general.showStatusBar;
-    this.aiKeyInput.value = cfg.ai.apiKey;
+    this.aiRomSelect.value = cfg.ai.romModelId;
+    this.aiRamSelect.value = cfg.ai.ramModelId;
+    this.syncAiHint();
     this.syncOverscanUI(cfg);
     this.applyScalerAvailability(cfg.general.selectedConsoleId);
   }
@@ -289,23 +294,38 @@ export class SettingsPanel implements Panel {
       .querySelector<HTMLButtonElement>('[data-controls]')!
       .addEventListener('click', () => this.deps.onOpenControls());
 
-    // AI key — `change` (not `input`) so we don't write on every keystroke.
-    this.aiKeyInput.addEventListener('change', () => {
+    this.aiRomSelect.addEventListener('change', () => {
       const cfg = this.deps.config.update((c) => ({
         ...c,
-        ai: { ...c.ai, apiKey: this.aiKeyInput.value.trim() },
+        ai: { ...c.ai, romModelId: this.aiRomSelect.value },
       }));
+      this.syncAiHint();
       this.deps.onConfigChanged(cfg);
     });
-    this.aiKeyToggleVisibility.addEventListener('click', () => {
-      this.aiKeyInput.type = this.aiKeyInput.type === 'password' ? 'text' : 'password';
+    this.aiRamSelect.addEventListener('change', () => {
+      const cfg = this.deps.config.update((c) => ({
+        ...c,
+        ai: { ...c.ai, ramModelId: this.aiRamSelect.value },
+      }));
+      this.syncAiHint();
+      this.deps.onConfigChanged(cfg);
     });
   }
 
-  /** Public accessor — used by the deep-link "Configure key" affordance. */
-  focusAiKey(): void {
-    this.aiKeyInput.focus();
-    this.aiKeyInput.select();
+  /**
+   * Compose the per-selection description blurb under the dropdowns —
+   * users see what trade-off they just picked.
+   */
+  private syncAiHint(): void {
+    const hint = this.root.querySelector<HTMLElement>('[data-ai-model-hint]');
+    if (!hint) return;
+    const models = listUpscaleModels();
+    const rom = models.find((m) => m.id === this.aiRomSelect.value);
+    const ram = models.find((m) => m.id === this.aiRamSelect.value);
+    const lines: string[] = [];
+    if (rom) lines.push(`<strong>ROM:</strong> ${rom.description}`);
+    if (ram && (!rom || ram.id !== rom.id)) lines.push(`<strong>RAM:</strong> ${ram.description}`);
+    hint.innerHTML = lines.join('<br><br>');
   }
 }
 

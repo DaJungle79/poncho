@@ -61,12 +61,12 @@ The full file format and the mapper register map are specified in [`poncho-rom.m
 
 **NES backward compatibility.** The Ultra PPU has a *NES-compat* sub-mode (`PpuUltra.setNesCompat(true)`): it exposes the original `$2000–$2007` register set, fetches CHR via the iNES mapper, and renders 8×8 2 bpp tiles as 4×4 pixel blocks. PRG runs unchanged. A converter (`scripts/poncho-convert.ts`) wraps any iNES file as an upscaled-mode PonchoROM that runs natively under PpuUltra without any compat layer.
 
-**AI upscale (v0.4).** PonchoROM gains an optional AI cache section (`flags.aiCachePresent`, bit 2): a parallel store of 32×32 native tiles keyed by NES tile + sub-palette hash. Two pipelines feed it:
+**AI upscale (v0.4).** PonchoROM gains an optional AI cache section (`flags.aiCachePresent`, bit 2): a parallel store of 32×32 native tiles keyed by NES tile content hash. Two pipelines feed it, both routed through a single pluggable model registry ([`src/convert/upscale-registry.ts`](../src/convert/upscale-registry.ts)) so swapping in a new upscaler is a one-file change:
 
-- **Bake-now**: `convertInesToPonchoAi` (CLI: `npm run poncho:convert -- input.nes --ai`) walks the CHR-ROM, dedupes tiles, sends each unique tile to the Gemini 2.5 Flash Image API, and bakes the upscaled tiles into native CHR. Output is a self-contained `.poncho` (`upscaledMode = 0`) — no cache section needed because the tiles are part of CHR proper.
-- **Runtime lazy-bake**: for CHR-RAM games, an `UpscaleWorker` watches PpuUltra's tile fetches. On miss, it kicks off an async API call; until the upscale arrives, the renderer falls back to the existing 4× nearest-neighbour expansion. Resolved tiles flow into the cache section, which is periodically written back to the `.poncho` (60 s + on cart eject), so each session bakes a few more tiles permanently.
+- **Bake-now**: `convertInesToPonchoAi` walks the CHR-ROM, dedupes tiles, sends each unique tile to the configured model, and embeds the upscaled tiles in the cartridge's AI cache section. Output keeps the original NES CHR (16-byte tiles), preserving NES-shape banking + pattern-table select + OAM behaviour. PpuUltra's upscaled-mode resolver splices the AI tiles in at render time.
+- **Runtime lazy-bake**: for CHR-RAM games, an `UpscaleWorker` watches PpuUltra's tile fetches. On miss, it kicks off an async upscale call; until the upscale arrives, the renderer falls back to the built-in 4× nearest-neighbour expansion. Resolved tiles flow into the cache section, which is periodically written back to the `.poncho` (60 s + on cart eject), so each session bakes a few more tiles permanently.
 
-The format spec for the AI cache section is in [`poncho-rom.md`](poncho-rom.md).
+Default model for both workflows is the deterministic 4× nearest-neighbour fallback. The architecture supports a different model for each workflow (heavy + slow for ROM bake, light + fast for RAM runtime) — pick in **Settings → AI upscale**. Real models (e.g. ESRGAN on WebGPU via ONNX Runtime Web) are the next phase. The format spec for the AI cache section is in [`poncho-rom.md`](poncho-rom.md).
 
 ---
 

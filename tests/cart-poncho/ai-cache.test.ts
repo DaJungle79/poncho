@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   AI_CACHE_ENTRY_BYTES,
   AI_CACHE_MAGIC,
-  AI_CACHE_MODEL_NANOBANANA_25_FLASH,
   AI_CACHE_MODEL_UNSPECIFIED,
   AI_CACHE_SECTION_HEADER_BYTES,
   AI_CACHE_VERSION,
@@ -14,6 +13,9 @@ import {
   type AiCacheEntry,
   type AiCacheSection,
 } from '../../src/core/cart-poncho/ai-cache';
+
+/** Stand-in numeric model id for test fixtures. */
+const SAMPLE_REGISTERED_MODEL = 1;
 
 function mkEntry(seed: number): AiCacheEntry {
   const hash = new Uint8Array(16);
@@ -43,21 +45,21 @@ describe('AI cache section — write / parse round trip', () => {
   it('round-trips a 0-entry section', () => {
     const section: AiCacheSection = {
       formatVersion: AI_CACHE_VERSION,
-      model: AI_CACHE_MODEL_NANOBANANA_25_FLASH,
+      model: SAMPLE_REGISTERED_MODEL,
       entries: [],
     };
     const bytes = writeAiCacheSection(section);
     expect(bytes.length).toBe(12);
     const parsed = parseAiCacheSection(bytes, 0, bytes.length);
     expect(parsed.formatVersion).toBe(AI_CACHE_VERSION);
-    expect(parsed.model).toBe(AI_CACHE_MODEL_NANOBANANA_25_FLASH);
+    expect(parsed.model).toBe(SAMPLE_REGISTERED_MODEL);
     expect(parsed.entries.length).toBe(0);
   });
 
   it('round-trips a 3-entry section preserving every byte', () => {
     const section: AiCacheSection = {
       formatVersion: AI_CACHE_VERSION,
-      model: AI_CACHE_MODEL_NANOBANANA_25_FLASH,
+      model: SAMPLE_REGISTERED_MODEL,
       entries: [mkEntry(1), mkEntry(2), mkEntry(3)],
     };
     const bytes = writeAiCacheSection(section);

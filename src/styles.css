@@ -691,32 +691,15 @@ select:focus-visible {
   color: var(--fg-soft);
 }
 
-.settings-key-row {
-  display: flex;
-  gap: 6px;
-  align-items: stretch;
-}
-.settings-key-row input {
-  flex: 1;
+.settings-row select {
   background: var(--bg-deep);
   border: 1px solid var(--line);
   color: var(--fg);
   font-family: var(--font-mono);
   font-size: 12px;
   padding: 6px 8px;
+  width: 100%;
 }
-.settings-key-row input::placeholder { color: var(--fg-soft); opacity: 0.6; }
-.settings-key-eye {
-  background: var(--bg-deep);
-  border: 1px solid var(--line);
-  color: var(--fg-soft);
-  padding: 0 8px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-}
-.settings-key-eye:hover { color: var(--accent-cool); border-color: var(--accent-cool); }
-.settings-key-eye svg { width: 14px; height: 14px; }
 
 .settings-hint {
   margin: 4px 0 6px;

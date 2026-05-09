@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  AI_CACHE_MODEL_NANOBANANA_25_FLASH,
   AI_CACHE_MODEL_NEAREST_NEIGHBOUR,
   AI_CACHE_MODEL_UNSPECIFIED,
   AI_CACHE_VERSION,
@@ -16,6 +15,9 @@ import {
   hexToHash,
 } from '../../src/convert/tile-cache';
 import { MockUpscaleClient, type UpscaleClient } from '../../src/convert/upscale-client';
+
+/** Stand-in numeric model id for test fixtures. */
+const SAMPLE_REGISTERED_MODEL = 1;
 
 const SAMPLE_TILE = (() => {
   const t = new Uint8Array(16);
@@ -109,36 +111,36 @@ describe('MemoryGlobalCache', () => {
 
 describe('FileTileCache', () => {
   it('seeds from a section whose model matches the active model', () => {
-    const file = new FileTileCache(AI_CACHE_MODEL_NANOBANANA_25_FLASH);
+    const file = new FileTileCache(SAMPLE_REGISTERED_MODEL);
     const hash = new Uint8Array(16); hash[0] = 0xaa;
     const nesTile = new Uint8Array(16); nesTile[0] = 0xbb;
     const nativeTile = new Uint8Array(1024); nativeTile[0] = 0xcc;
     const section: AiCacheSection = {
       formatVersion: AI_CACHE_VERSION,
-      model: AI_CACHE_MODEL_NANOBANANA_25_FLASH,
+      model: SAMPLE_REGISTERED_MODEL,
       entries: [{ hash, nesTile, nativeTile }],
     };
-    file.loadFromSection(section, AI_CACHE_MODEL_NANOBANANA_25_FLASH);
+    file.loadFromSection(section, SAMPLE_REGISTERED_MODEL);
     expect(file.size()).toBe(1);
     expect(file.get(hashToHex(hash))).toEqual(nativeTile);
     expect(file.isDirty()).toBe(false); // loading isn't dirty
   });
 
   it('discards entries whose model does not match the active model', () => {
-    const file = new FileTileCache(AI_CACHE_MODEL_NANOBANANA_25_FLASH);
+    const file = new FileTileCache(SAMPLE_REGISTERED_MODEL);
     const hash = new Uint8Array(16);
     const section: AiCacheSection = {
       formatVersion: AI_CACHE_VERSION,
       model: AI_CACHE_MODEL_NEAREST_NEIGHBOUR, // different model
       entries: [{ hash, nesTile: new Uint8Array(16), nativeTile: new Uint8Array(1024) }],
     };
-    file.loadFromSection(section, AI_CACHE_MODEL_NANOBANANA_25_FLASH);
+    file.loadFromSection(section, SAMPLE_REGISTERED_MODEL);
     expect(file.size()).toBe(0); // entries discarded
     expect(file.isDirty()).toBe(false); // not dirty — old entries preserved on disk
   });
 
   it('puts mark cache dirty; toSection returns the snapshot', () => {
-    const file = new FileTileCache(AI_CACHE_MODEL_NANOBANANA_25_FLASH);
+    const file = new FileTileCache(SAMPLE_REGISTERED_MODEL);
     const hash = '00'.repeat(16);
     expect(file.isDirty()).toBe(false);
     file.put(hash, new Uint8Array(16), new Uint8Array(1024));
@@ -146,7 +148,7 @@ describe('FileTileCache', () => {
 
     const section = file.toSection();
     expect(section.formatVersion).toBe(AI_CACHE_VERSION);
-    expect(section.model).toBe(AI_CACHE_MODEL_NANOBANANA_25_FLASH);
+    expect(section.model).toBe(SAMPLE_REGISTERED_MODEL);
     expect(section.entries.length).toBe(1);
 
     file.clearDirty();

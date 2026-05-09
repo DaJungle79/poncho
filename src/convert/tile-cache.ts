@@ -41,6 +41,20 @@ import type { UpscaleClient } from './upscale-client';
 /** Hex string of a 16-byte SHA-256-truncated-128 hash. Used as a Map key. */
 export type TileHashHex = string;
 
+/**
+ * Fixed 4-entry NES master-palette indices used for cache-key hashing
+ * by BOTH the bake-now pipeline and the runtime worker. Hue-distinct
+ * (black / red / green / blue) so the AI primer renders unambiguously
+ * — see `convertInesToPonchoAi` for the round-trip rationale.
+ *
+ * Kept as a shared constant so a bake-now-baked tile's hash matches the
+ * runtime resolver's lookup hash. If we ever vary this, tiles cached
+ * with the old palette become invisible to the runtime (cache miss → NN
+ * fallback). The cache section's `model` byte is the lever for
+ * orchestrated re-bakes when that happens.
+ */
+export const TILE_HASH_PALETTE = new Uint8Array([0x0f, 0x16, 0x2a, 0x12]);
+
 /** Storage backend for cache entries that survive across cartridges. */
 export interface GlobalTileCache {
   get(hash: TileHashHex, modelId: number): Promise<Uint8Array | null>;

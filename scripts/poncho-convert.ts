@@ -8,11 +8,12 @@
  * `<input-without-ext>.poncho` next to the input file.
  *
  * `--ai` switches on the AI bake-now pipeline (`convertInesToPonchoAi`).
- * Without an API key it runs through `MockUpscaleClient` (deterministic
- * 4× nearest-neighbour) — useful as a regression target. Pass
- * `GEMINI_API_KEY` in the environment to use the real upscaler; note
- * that the real `NanoBananaClient` is browser-only today (it relies on
- * the platform Canvas API), so the CLI sticks to the mock for now.
+ * The CLI currently always runs through `MockUpscaleClient` (the
+ * deterministic 4× nearest-neighbour fallback) — useful as a regression
+ * target and so the CLI stays dependency-free. Real models (e.g. local
+ * ESRGAN/ONNX on WebGPU) live in the web shell behind the model
+ * registry; once a Node-side runner is added, this CLI will read the
+ * model id from `--model <id>`.
  *
  * The conversion logic is in `scripts/lib/ines-to-poncho.ts` so it can
  * also be called programmatically from other scripts / tests.
@@ -106,9 +107,9 @@ async function main(): Promise<void> {
   let aiNotes: { uniqueTiles: number; cacheHits: number; apiCalls: number; failedTiles: number } | null = null;
   try {
     if (ai) {
-      // CLI path uses MockUpscaleClient — deterministic NN. Real
-      // NanoBananaClient is browser-only (Canvas-dependent). Future:
-      // Node-side codec for true AI bake from CLI.
+      // CLI defaults to the deterministic 4× fallback. Once a Node-
+      // side model runner lands, swap to `createUpscaleClient(modelId,
+      // 'rom-bake', config)` from the registry.
       const client = new MockUpscaleClient();
       let lastPct = -1;
       const aiResult = await convertInesToPonchoAi(inesBytes, {

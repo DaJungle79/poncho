@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  AI_CACHE_MODEL_NANOBANANA_25_FLASH,
   AI_CACHE_MODEL_NEAREST_NEIGHBOUR,
   AI_CACHE_VERSION,
   type AiCacheEntry,
@@ -14,6 +13,11 @@ import {
   repackPonchoWithAiCache,
 } from '../../src/core/cart-poncho/repack';
 import { assemblePonchoRom, makePalette } from '../../src/core/cart-poncho/writer';
+
+/** Stand-in numeric model id for test fixtures (was the NanoBanana
+ *  constant; the registry now uses string ids per `UpscaleModel.id` and
+ *  each model picks its own `cacheModelId` for the section header). */
+const SAMPLE_REGISTERED_MODEL = 1;
 
 function mkEntry(seed: number): AiCacheEntry {
   const hash = new Uint8Array(16);
@@ -124,11 +128,11 @@ describe('mergeAiCacheSections — model-aware union', () => {
     };
     const fresh: AiCacheSection = {
       formatVersion: AI_CACHE_VERSION,
-      model: AI_CACHE_MODEL_NANOBANANA_25_FLASH,
+      model: SAMPLE_REGISTERED_MODEL,
       entries: [mkEntry(7)],
     };
     const merged = mergeAiCacheSections(existing, fresh);
-    expect(merged.model).toBe(AI_CACHE_MODEL_NANOBANANA_25_FLASH);
+    expect(merged.model).toBe(SAMPLE_REGISTERED_MODEL);
     expect(merged.entries.length).toBe(1);
   });
 

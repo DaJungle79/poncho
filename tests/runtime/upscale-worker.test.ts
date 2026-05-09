@@ -7,6 +7,7 @@ import {
 } from '../../src/core/cart-poncho/ai-cache';
 import {
   MemoryGlobalCache,
+  TILE_HASH_PALETTE,
   hashTileSync,
   hexToHash,
 } from '../../src/convert/tile-cache';
@@ -83,7 +84,7 @@ describe('UpscaleWorker — global cache promotion', () => {
     };
     const cache = new MemoryGlobalCache();
     const seeded = new Uint8Array(1024).fill(0x77);
-    const hash = hashTileSync(SAMPLE_TILE, SAMPLE_PAL);
+    const hash = hashTileSync(SAMPLE_TILE, TILE_HASH_PALETTE);
     await cache.put(hash, 7, seeded);
 
     const w = new UpscaleWorker({ client, globalCache: cache });
@@ -101,7 +102,7 @@ describe('UpscaleWorker — global cache promotion', () => {
     w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
     await flush();
 
-    const hash = hashTileSync(SAMPLE_TILE, SAMPLE_PAL);
+    const hash = hashTileSync(SAMPLE_TILE, TILE_HASH_PALETTE);
     expect(await cache.get(hash, AI_CACHE_MODEL_NEAREST_NEIGHBOUR)).not.toBeNull();
   });
 });
@@ -109,7 +110,7 @@ describe('UpscaleWorker — global cache promotion', () => {
 describe('UpscaleWorker — disk seed', () => {
   it('serves seeded entries on first query without an API call', async () => {
     const native = new Uint8Array(1024).fill(0xab);
-    const hash = hashTileSync(SAMPLE_TILE, SAMPLE_PAL);
+    const hash = hashTileSync(SAMPLE_TILE, TILE_HASH_PALETTE);
     const seed: AiCacheSection = {
       formatVersion: AI_CACHE_VERSION,
       model: AI_CACHE_MODEL_NEAREST_NEIGHBOUR,
@@ -130,22 +131,25 @@ describe('UpscaleWorker — disk seed', () => {
     expect(clientCalls).toBe(0);
   });
 
-  it('ignores seeded entries from a different model', async () => {
+  it('still surfaces seeded entries from a different model (lazy overwrite)', async () => {
+    // Phase 4.5 change: bake-now cartridges (NanoBanana model) must
+    // remain visible when the user has no API key and the active client
+    // is `MockUpscaleClient`. Misses still go through the active client
+    // and replace the on-disk entry by hash; nothing is destructively
+    // purged at load time.
     const native = new Uint8Array(1024).fill(0xab);
-    const hash = hashTileSync(SAMPLE_TILE, SAMPLE_PAL);
+    const hash = hashTileSync(SAMPLE_TILE, TILE_HASH_PALETTE);
     const seed: AiCacheSection = {
       formatVersion: AI_CACHE_VERSION,
-      model: 1, // nanobanana
+      model: 1, // nanobanana — different from the active mock client
       entries: [{ hash: hexToHash(hash), nesTile: SAMPLE_TILE, nativeTile: native }],
     };
     const client = new MockUpscaleClient(); // modelId = NEAREST_NEIGHBOUR
     const w = new UpscaleWorker({ client, seed });
 
-    expect(w.resolveSync(SAMPLE_TILE, SAMPLE_PAL)).toBeNull();
-    await flush();
-    // Worker fetched fresh — disk entries for the other model preserved.
-    expect(w.readyCount()).toBe(1);
-    expect(w.resolveSync(SAMPLE_TILE, SAMPLE_PAL)![0]).not.toBe(0xab);
+    const result = w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
+    expect(result).not.toBeNull();
+    expect(result![0]).toBe(0xab);
   });
 });
 
@@ -195,39 +199,6 @@ describe('UpscaleWorker — failure handling', () => {
     };
     const w = new UpscaleWorker({ client: bad });
     expect(() => w.resolveSync(SAMPLE_TILE, SAMPLE_PAL)).not.toThrow();
-  });
-});
-
-describe('UpscaleWorker — prompt forwarding', () => {
-  it('forwards constructor `prompt` to client.upscaleTile', async () => {
-    let seen: string | undefined = '<sentinel>';
-    const client: UpscaleClient = {
-      modelId: 99,
-      async upscaleTile(_t, _p, prompt) { seen = prompt; return new Uint8Array(1024); },
-    };
-    const w = new UpscaleWorker({ client, prompt: 'CTOR_PROMPT' });
-    w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
-    await flush();
-    expect(seen).toBe('CTOR_PROMPT');
-  });
-
-  it('setPrompt swaps the prompt for subsequent tile fetches', async () => {
-    const seen: Array<string | undefined> = [];
-    const client: UpscaleClient = {
-      modelId: 99,
-      async upscaleTile(_t, _p, prompt) { seen.push(prompt); return new Uint8Array(1024); },
-    };
-    const w = new UpscaleWorker({ client });
-    w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
-    await flush();
-    w.setPrompt('SWAPPED');
-    // Different tile so it isn't cached.
-    const otherTile = new Uint8Array(SAMPLE_TILE);
-    otherTile[0] ^= 0xff;
-    w.resolveSync(otherTile, SAMPLE_PAL);
-    await flush();
-    expect(seen[0]).toBeUndefined();
-    expect(seen[1]).toBe('SWAPPED');
   });
 });
 

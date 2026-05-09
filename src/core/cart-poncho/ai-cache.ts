@@ -10,7 +10,8 @@
  *
  *   4 bytes   magic 'AICH'  (0x41 0x49 0x43 0x48)
  *   2 bytes   format version (= 1)
- *   2 bytes   model identifier (0 = unspecified, 1 = nanobanana-2.5-flash, …)
+ *   2 bytes   model identifier (0 = unspecified, 0xff = nearest-neighbour, future
+ *             local-model ids assigned as they ship — see ai-cache.ts constants)
  *   4 bytes   entry count N
  *   ─── per entry (1056 bytes) ───
  *     16 bytes   SHA-256-truncated-128 of (16-byte NES tile ++ 16-byte sub-palette indices)
@@ -28,13 +29,15 @@ export const AI_CACHE_MAGIC = Object.freeze([0x41, 0x49, 0x43, 0x48] as const);
 export const AI_CACHE_VERSION = 1;
 
 /**
- * Stable identifiers for upscaler models. New entries get a new id; the
- * runtime keys cache validity on this so prompt/model iteration doesn't
+ * Stable identifiers for upscaler models. New entries get a new id;
+ * the runtime keys cache validity on this so model iteration doesn't
  * silently mix old + new outputs.
+ *
+ * Free-tier slots 1..0xfe are reserved for future local-model entries
+ * (e.g. ESRGAN-tiny on WebGPU). 0xff is the deterministic fallback.
  */
 export const AI_CACHE_MODEL_UNSPECIFIED = 0;
-export const AI_CACHE_MODEL_NANOBANANA_25_FLASH = 1;
-export const AI_CACHE_MODEL_NEAREST_NEIGHBOUR = 0xff; // for tests / fallback
+export const AI_CACHE_MODEL_NEAREST_NEIGHBOUR = 0xff;
 
 const SECTION_HEADER_BYTES = 4 + 2 + 2 + 4; // magic + version + model + count = 12
 const ENTRY_BYTES = 16 + 16 + 1024;          // hash + nesTile + nativeTile = 1056

@@ -32,6 +32,11 @@ import { assemblePonchoRom } from '../core/cart-poncho/writer';
 import { NES_MASTER_PALETTE_RGBA } from '../core/ppu-ultra/nes-master-palette';
 
 import {
+  AI_CACHE_VERSION,
+  type AiCacheEntry,
+  type AiCacheSection,
+} from '../core/cart-poncho/ai-cache';
+import {
   ConvertError,
   MAPPER_TO_VARIANT,
   MIRRORING_TO_BOOT,
@@ -40,11 +45,13 @@ import {
 } from './ines-to-poncho';
 import {
   MemoryGlobalCache,
+  TILE_HASH_PALETTE,
   hashTile,
+  hexToHash,
   type GlobalTileCache,
   type TileHashHex,
 } from './tile-cache';
-import { MockUpscaleClient, QuotaExceededError, type UpscaleClient } from './upscale-client';
+import { MockUpscaleClient, type UpscaleClient } from './upscale-client';
 
 /** Counters surfaced through the progress callback. */
 export interface AiConvertProgress {
@@ -81,14 +88,6 @@ export interface AiConvertOptions {
   concurrency?: number;
   /** Fired after each unique tile is resolved. UI hooks the progress bar. */
   onProgress?: (info: AiConvertProgress) => void;
-  /**
-   * Optional per-game prompt override. When set, forwarded to every
-   * `client.upscaleTile` call so the AI gets game-specific direction
-   * (genre, vibe, art style). Built once per conversion via
-   * `buildGameUpscalePrompt` from the game's RomMeta. Falls back to the
-   * client's default prompt when omitted.
-   */
-  customPrompt?: string;
   /**
    * Cancellation. When triggered the pipeline stops scheduling new
    * tiles and rejects with `AiConvertCancelled`. Tiles already cached
@@ -169,24 +168,13 @@ export async function convertInesToPonchoAi(
   const globalCache = opts.globalCache ?? new MemoryGlobalCache();
   const concurrency = Math.max(1, opts.concurrency ?? 2);
 
-  // Bake-time dedup: hash by tile bytes only. Sub-palette context is
-  // unknown at conversion (one tile renders with many palettes during
-  // play), so we send the AI a neutral palette and let the runtime
-  // apply the actual palette as before. The neutral palette is also the
-  // hash domain — bake-now and runtime live in different cache namespaces.
-  //
-  // CRITICAL: all four entries must resolve to *visually distinct* RGB
-  // values in the NES master palette, otherwise the primer image we
-  // send Gemini collapses two pixel-values into one colour and the
-  // snap-back loses the original distinction. The default-master `0x20`
-  // and `0x30` are both pure white, so we pick four distinct hues
-  // instead — black / red / green / blue — for maximum signal.
-  const NEUTRAL_PALETTE = new Uint8Array([
-    0x0f, // black     (0x00, 0x00, 0x00)
-    0x16, // red       (0xd2, 0x12, 0x69)
-    0x2a, // green     (0x43, 0xf6, 0x11)
-    0x12, // blue      (0x4b, 0x30, 0xff)
-  ]);
+  // Bake-time dedup: hash by tile bytes + the shared `TILE_HASH_PALETTE`
+  // constant. Sub-palette context is unknown at conversion (one tile
+  // renders with many palettes during play), so we send the AI a fixed
+  // neutral palette and let the runtime apply the actual palette as
+  // before. The runtime resolver also uses `TILE_HASH_PALETTE` for
+  // hashing so its lookups hit our cache entries.
+  const NEUTRAL_PALETTE = TILE_HASH_PALETTE;
 
   // Walk all tiles, build hash → unique-tile-index map.
   type TileGroup = { hash: TileHashHex; bytes: Uint8Array };
@@ -223,12 +211,10 @@ export async function convertInesToPonchoAi(
     if (opts.signal?.aborted) cancelled = true;
   };
 
-  let fatalError: Error | null = null;
-
   const worker = async (): Promise<void> => {
     while (true) {
       checkAbort();
-      if (cancelled || fatalError) return;
+      if (cancelled) return;
       const i = cursor++;
       if (i >= groups.length) return;
       const group = groups[i]!;
@@ -239,23 +225,20 @@ export async function convertInesToPonchoAi(
         cached++;
       } else {
         try {
-          const native = await client.upscaleTile(group.bytes, NEUTRAL_PALETTE, opts.customPrompt);
+          const native = await client.upscaleTile(group.bytes, NEUTRAL_PALETTE);
           if (native.length !== 1024) {
             throw new Error(`upscaler returned ${native.length} bytes (expected 1024)`);
           }
           upscaled.set(group.hash, native);
           await globalCache.put(group.hash, client.modelId, native);
           apiCalls++;
-        } catch (err) {
-          // Permanent quota errors stop the whole job — silent
-          // NN-fallback would otherwise mask a billing issue. All other
-          // errors degrade per tile.
-          if (err instanceof QuotaExceededError) {
-            fatalError = err;
-            return;
-          }
+        } catch {
           // Per-tile fallback: NN expansion. The conversion still
           // completes; failed tiles render the same as no-AI mode.
+          // Models that need to abort the whole bake (e.g. unrecoverable
+          // GPU error) should throw a non-`UpscaleError` and let it
+          // propagate via this catch — extend with a fatal-error type
+          // when the first such case shows up.
           upscaled.set(group.hash, nearestNeighbourUpscale(group.bytes));
           failed++;
         }
@@ -271,10 +254,6 @@ export async function convertInesToPonchoAi(
   for (let i = 0; i < pumpCount; i++) pumps.push(worker());
   await Promise.all(pumps);
 
-  // Fatal errors (e.g. permanent quota) still abort — there's nothing
-  // partial worth saving when the API is hard-denying us.
-  if (fatalError) throw fatalError;
-
   // Cancellation is non-fatal: fill the remaining unresolved unique
   // tiles with nearest-neighbour so the user gets a playable `.poncho`
   // for whatever was upscaled before they hit Cancel.
@@ -288,12 +267,22 @@ export async function convertInesToPonchoAi(
     reportProgress();
   }
 
-  // Reassemble CHR: each 16-byte NES tile becomes 1024 bytes.
-  const nativeChr = new Uint8Array(tileCount * 1024);
-  for (let i = 0; i < tileCount; i++) {
-    const native = upscaled.get(tileHashes[i]!)!;
-    nativeChr.set(native, i * 1024);
-  }
+  // Build the AI cache section — one entry per unique tile. The
+  // .poncho output keeps the *original* 16-byte NES CHR intact so all
+  // NES-shape mechanisms (PPUCTRL.bgPatternBase, mapper CHR banking,
+  // 256-byte $4014 OAM DMA, 4-byte sprite OAM) work normally; the
+  // upscaled bytes ride along in the cache section and are spliced in
+  // by the runtime resolver per-tile during render.
+  const aiCacheEntries: AiCacheEntry[] = groups.map((group) => ({
+    hash: hexToHash(group.hash),
+    nesTile: new Uint8Array(group.bytes),
+    nativeTile: upscaled.get(group.hash)!,
+  }));
+  const aiCache: AiCacheSection = {
+    formatVersion: AI_CACHE_VERSION,
+    model: client.modelId,
+    entries: aiCacheEntries,
+  };
 
   const bootMirroring = MIRRORING_TO_BOOT[ines.header.mirroring] ?? 0;
   const warnings: string[] = [];
@@ -308,14 +297,15 @@ export async function convertInesToPonchoAi(
 
   const poncho = assemblePonchoRom({
     title: opts.title?.slice(0, 32) ?? '',
-    flags: { upscaledMode: false, trailerPresent: false, aiCachePresent: false },
+    flags: { upscaledMode: true, trailerPresent: false, aiCachePresent: true },
     mapperId: 1,
     mapperSubmode: encodeMapperSubmode({ bankingVariant: variant, bootMirroring }),
     chrRamKb: 0,
     sourceInesCrc32: sourceCrc,
     palette: NES_MASTER_PALETTE_RGBA,
     prg: ines.prgRom,
-    chr: nativeChr,
+    chr: ines.chrRom,
+    aiCache,
   });
 
   return {
@@ -326,7 +316,7 @@ export async function convertInesToPonchoAi(
       sourceMirroring: ines.header.mirroring,
       hasBattery: ines.header.hasBattery,
       prgKb: ines.prgRom.length / 1024,
-      chrKb: nativeChr.length / 1024,
+      chrKb: ines.chrRom.length / 1024,
       chrRamKb: 0,
       paletteEntries: NES_MASTER_PALETTE_RGBA.length / 4,
       warnings,
