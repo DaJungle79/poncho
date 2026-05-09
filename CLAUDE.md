@@ -1,5 +1,17 @@
 # CLAUDE.md
 
+# Rules
+
+These all are mandatory. You must obey them without exceptions.
+
+- Never commit automatically! Always ask the user.
+- Do not make effort estimations like number of days etc.
+- Each release should have a plan stored in /docs. The plan must be split into phases and each phase is one source control commit. Each phase should also have tests. The tests must pass before we consider the release as complete.
+- Always ask the user before starting work on a new phase of the release. 
+- Before committing update changelog.
+
+
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Commands
@@ -181,6 +193,4 @@ For deferred work / known gaps, the home is `DEFERRED.md`. When closing one of t
 
 For *future* features (things not yet shipped, not yet broken), the home is `ROADMAP.md`. When you ship a roadmap item, move it from `ROADMAP.md` to `CHANGELOG.md` under `## [Unreleased]` in the same change set.
 
-## GitHub rules
 
-Never commit automatically! Always ask the user.
