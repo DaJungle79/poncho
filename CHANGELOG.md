@@ -82,6 +82,46 @@ The Gemini 2.5 Flash Image cloud-API path has been removed entirely. The support
 - **App / RomsPanel / CLI**: bake-now + runtime worker now construct their client via `createUpscaleClient(modelId, workflow, modelConfig)`. Modal label reflects the selected model + flags fallback when the requested model is unavailable. CLI `--ai` always runs the deterministic NN client (a Node-side model runner is a future addition).
 - **Tests**: added `tests/convert/upscale-registry.test.ts` (8 tests). 443 tests total, typecheck clean.
 
+### Added — v0.4 Phase 4.6: extended sub-palettes (richer-than-4-colour BG)
+
+PpuUltra's resolver-hit BG render branch can now address up to 256
+distinct pv values per tile, indexing into a 256-entry RGBA "extended
+sub-palette" built lazily from the cartridge's NES-shape 4-entry sub-
+palette. AI / future-model output gains room to express gradients,
+soft shading, and material highlights; the framebuffer renders them
+without any format change to `.poncho`.
+
+- **New module**: [`src/runtime/extended-palette.ts`](src/runtime/extended-palette.ts).
+  - `buildExtendedSubPalette(subPalette, masterPalette): Uint32Array(256)`
+  - `snapToExtendedPalette(r, g, b, ext)` — closest-pv lookup for
+    future RGB-output clients (e.g. ESRGAN snap-back).
+- **Encoding** (backward-compatible, **no format-version bump**):
+  - `pv 0..3` → sub-palette entries 0..3 verbatim. Pre-4.6 AI caches
+    that only used `pv 0..3` render unchanged.
+  - `pv 4..87` → 84-shade ramp of base 1 (sub-palette entry 1):
+    shade 0 = black, shade 41 = base 1, shade 83 = white. Linear RGB
+    interpolation.
+  - `pv 88..171` → ramp of base 2.
+  - `pv 172..255` → ramp of base 3.
+- **PpuUltra**: drops the `pv & 3` mask in the resolver-hit BG branch;
+  indexes the 256-entry extended palette directly. The 4 BG extended
+  sub-palettes are rebuilt lazily on first scanline after a palette-RAM
+  or master-palette write (the existing `refreshBgColor()` path
+  invalidates them; the existing `$2007` palette write site already
+  funnels through that).
+- **Sprites unchanged in this phase** — still go through the NES-tile
+  NN path. Native-tile sprite rendering with the extended palette
+  needs a separate design pass for transparency semantics; deferred.
+- **MockUpscaleClient unchanged** — its `pv 0..3` output still hits
+  the legacy slots in the extended palette, producing identical
+  pre-4.6 colours via the new code path.
+- **Tests**: [`tests/runtime/extended-palette.test.ts`](tests/runtime/extended-palette.test.ts)
+  (10 tests: layout, legacy-pv mirroring, ramp endpoints, ramp-base
+  shade, monotonic luminance, alpha preservation, error paths,
+  snap-back). All existing PPU regression tests still pass — the
+  legacy `pv 0..3` slots match the old behaviour exactly. Total now
+  453 tests pass / 1 skipped (was 443).
+
 ## [0.3.0] — 2026-05-07
 
 > Poncho-NES native runtime + iNES converter. The runtime gains everything needed

@@ -41,6 +41,7 @@
 
 import type { Mirroring } from '../cart/ines';
 import { createFrameBuffer, type FrameBuffer } from '../../renderer/frame-buffer';
+import { buildExtendedSubPalette } from '../../runtime/extended-palette';
 
 export const ULTRA_WIDTH = 1024;
 export const ULTRA_HEIGHT = 960;
@@ -199,6 +200,25 @@ export class PpuUltra {
 
   /** Universal-BG colour, cached so empty/no-CHR frames stay cheap. */
   private bgColor = 0xff000000;
+
+  /**
+   * Extended sub-palettes (Phase 4.6 of v0.4). One 256-entry RGBA
+   * table per BG sub-palette index (0..3). Built lazily from
+   * `paletteRam` + `masterPalette` and invalidated whenever either
+   * changes — see `extendedPalettesValid`. The resolver-hit BG render
+   * branch indexes into these directly so AI-baked tiles can carry
+   * gradient / shading detail beyond the four NES base colours.
+   *
+   * Layout per entry — see `src/runtime/extended-palette.ts`:
+   *   pv 0..3:    sub-palette entries 0..3 (NES legacy; old caches)
+   *   pv 4..87:   84-shade ramp of base 1 (dark → base @ 45 → white)
+   *   pv 88..171: ramp of base 2 (base @ 129)
+   *   pv 172..255: ramp of base 3 (base @ 213)
+   */
+  private extendedBgPalettes: Uint32Array[] = [
+    new Uint32Array(0), new Uint32Array(0), new Uint32Array(0), new Uint32Array(0),
+  ];
+  private extendedPalettesValid = false;
 
   constructor() {
     this.framebuffer = createFrameBuffer(ULTRA_WIDTH, ULTRA_HEIGHT);
@@ -695,6 +715,12 @@ export class PpuUltra {
     const tileScratch = this.resolverTileScratch;
     const palScratch = this.resolverPalScratch;
 
+    // The resolver-hit render branch indexes into `extendedBgPalettes`;
+    // rebuild lazily on first scanline after a palette write.
+    if (resolver !== null && !this.extendedPalettesValid) {
+      this.rebuildExtendedPalettes();
+    }
+
     let lastNtH = -1;
     let lastTileCol = -1;
     let physBase = 0;
@@ -767,18 +793,23 @@ export class PpuUltra {
       if (nativeTile !== null) {
         // Native path: per-Poncho-pixel palette lookup. Same pv→color
         // mapping as NN, so the runtime palette still drives final RGBA;
-        // the AI tile only contributes shape (pv 0..3 per native px).
+        // Extended-palette path (Phase 4.6): pv is now 0..255, indexed
+        // into a 256-entry RGBA table built from this sub-palette's
+        // four base colours plus three 84-shade ramps. Legacy AI
+        // caches that stored pv 0..3 still render correctly because
+        // the first four entries mirror the NES sub-palette verbatim.
+        const extPal = this.extendedBgPalettes[subPalette]!;
         const colBase = tileLocalX * 4;
         for (let dx = 0; dx < 4; dx++) {
           const c = colBase + dx;
-          const pv0 = nativeTile[nativeRow0 + c]! & 3;
-          const pv1 = nativeTile[nativeRow1 + c]! & 3;
-          const pv2 = nativeTile[nativeRow2 + c]! & 3;
-          const pv3 = nativeTile[nativeRow3 + c]! & 3;
-          fb[r0 + dx] = pv0 === 0 ? universalBg : master[pal[subPalette * 4 + pv0]! % masterLen]!;
-          fb[r1 + dx] = pv1 === 0 ? universalBg : master[pal[subPalette * 4 + pv1]! % masterLen]!;
-          fb[r2 + dx] = pv2 === 0 ? universalBg : master[pal[subPalette * 4 + pv2]! % masterLen]!;
-          fb[r3 + dx] = pv3 === 0 ? universalBg : master[pal[subPalette * 4 + pv3]! % masterLen]!;
+          const pv0 = nativeTile[nativeRow0 + c]!;
+          const pv1 = nativeTile[nativeRow1 + c]!;
+          const pv2 = nativeTile[nativeRow2 + c]!;
+          const pv3 = nativeTile[nativeRow3 + c]!;
+          fb[r0 + dx] = pv0 === 0 ? universalBg : extPal[pv0]!;
+          fb[r1 + dx] = pv1 === 0 ? universalBg : extPal[pv1]!;
+          fb[r2 + dx] = pv2 === 0 ? universalBg : extPal[pv2]!;
+          fb[r3 + dx] = pv3 === 0 ? universalBg : extPal[pv3]!;
         }
         continue;
       }
@@ -1041,6 +1072,34 @@ export class PpuUltra {
       const idx = this.paletteRam[0]! % this.masterPalette.length;
       this.bgColor = this.masterPalette[idx]!;
     }
+    this.extendedPalettesValid = false;
+  }
+
+  /**
+   * Lazily rebuild the 4 BG extended sub-palettes from the current
+   * `paletteRam` + `masterPalette`. Called from the resolver-hit
+   * branch of the upscaled BG render path on first use after a palette
+   * write. The build is cheap enough (~1 KB of arithmetic per
+   * sub-palette × 4) that lazy-on-demand is fine; eager-on-write
+   * would also be reasonable.
+   */
+  private rebuildExtendedPalettes(): void {
+    if (this.masterPalette.length === 0) {
+      // Master palette not yet wired — drop to empty, render path
+      // will fall back to NN.
+      for (let i = 0; i < 4; i++) this.extendedBgPalettes[i] = new Uint32Array(0);
+      this.extendedPalettesValid = true;
+      return;
+    }
+    const sub = new Uint8Array(4);
+    for (let s = 0; s < 4; s++) {
+      sub[0] = this.paletteRam[s * 4 + 0]!;
+      sub[1] = this.paletteRam[s * 4 + 1]!;
+      sub[2] = this.paletteRam[s * 4 + 2]!;
+      sub[3] = this.paletteRam[s * 4 + 3]!;
+      this.extendedBgPalettes[s] = buildExtendedSubPalette(sub, this.masterPalette);
+    }
+    this.extendedPalettesValid = true;
   }
 }
 
