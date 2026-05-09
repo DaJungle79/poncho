@@ -28,6 +28,7 @@ So here we are. About 8,300 lines of TypeScript, no game-specific hacks, every c
 git clone https://github.com/DaJungle79/poncho.git
 cd poncho
 npm install
+npm run setup          # optional — copies ONNX runtime + fetches AI upscale models
 npm run dev
 ```
 
@@ -63,10 +64,11 @@ Open <http://localhost:5173>. Click the cassette icon in the left sidebar to ope
 ### AI upscale (Poncho-NES, v0.4) Alpha!
 
 - **Pluggable upscale models** — the registry in `src/convert/upscale-registry.ts` is the single source of truth. Each model declares a stable id, label, supported workflows (CHR-ROM bake / CHR-RAM runtime), and a factory that returns an `UpscaleClient`. Pick a model for ROM and a model for RAM in **Settings → AI upscale**; default for both is the deterministic 4× nearest-neighbour fallback.
+- **Bundled local models** — the build ships its own ONNX weights from `public/models/` (gitignored, Vite serves them at `/models/<name>.onnx`). The first model is **Real-ESRGAN x4 Anime** (Phase 5a); see [`docs/models-setup.md`](docs/models-setup.md) for how to install it (one of: edit the URL in `scripts/models-manifest.json` then run `npm run setup:models`, or drop the file in directly). More models land via the same manifest.
 - **Convert .nes → .poncho with AI bake-now** — CHR-ROM games run every unique tile through the active model at conversion time, producing a `.poncho` whose AI cache section carries the upscaled tiles. PpuUltra's per-tile resolver splices them in at render time, so NES-shape banking, OAM, and pattern-base behaviour all keep working. Modal shows progress, ETA, Cancel; failed tiles drop to NN so a flaky model doesn't break the bake.
 - **Lazy upscale at runtime for CHR-RAM games** — tiles uploaded by PRG at runtime get sent to the active runtime model in the background; framebuffer pops in to higher quality as upscales return. Per-tile granularity, so a frame can mix native and 4× nearest-neighbour tiles freely.
 - **Self-upgrading `.poncho` file** — runtime upscales are written back into the cartridge's AI cache section (every 60 s + on cart eject), so each session bakes a few more tiles permanently. Subsequent plays start from that cache; eventually AI calls drop to zero.
-- **First model: nearest-neighbour fallback.** Real models (e.g. ESRGAN-tiny on WebGPU via ONNX Runtime Web) are the **Phase 5** target — see [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md). Adding a new model is one file: implement `UpscaleClient`, allocate a numeric `cacheModelId` in `ai-cache.ts`, register the `UpscaleModel` definition.
+- **Adding a new model**: drop an entry in `scripts/models-manifest.json`, implement `UpscaleClient` (or reuse `OnnxUpscaleClient` with a different config), allocate a numeric `cacheModelId` in `ai-cache.ts`, register the `UpscaleModel` definition.
 
 
 ### Architecture

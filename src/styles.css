@@ -710,6 +710,20 @@ select:focus-visible {
 }
 .settings-hint a { color: var(--accent-cool); text-decoration: underline; }
 
+.settings-model-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--fg-soft);
+  margin: 4px 0 0;
+}
+.settings-model-status code {
+  font-family: var(--font-mono);
+  background: var(--bg-deep);
+  padding: 0 4px;
+  border: 1px solid var(--line);
+}
+
 .settings-link {
   width: 100%;
   background: var(--bg-deep);

@@ -7,6 +7,16 @@ tsconfig.tsbuildinfo
 # Scratch outputs from debug scripts / probes (e.g. tests/integration/ai-upscale-*).
 tmp/
 
+# AI upscale model files — fetched by `npm run setup:models` from
+# `scripts/models-manifest.json`. Multi-MB binaries; never committed.
+public/models/*
+!public/models/.gitkeep
+
+# ONNX Runtime Web runtime assets — copied from node_modules by
+# `npm run setup:ort`. ~74 MB of WASM; rebuilt on every `npm install`.
+public/ort/*
+!public/ort/.gitkeep
+
 # OS noise
 **/.DS_Store
 *.log

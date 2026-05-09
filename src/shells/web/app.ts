@@ -33,6 +33,7 @@ import { ConsolesPanel } from './ui/panels/consoles-panel';
 import { RomsPanel } from './ui/panels/roms-panel';
 import { SettingsPanel } from './ui/panels/settings-panel';
 import { ControlsPanel } from './ui/panels/controls-panel';
+import { ConvertPanel } from './ui/panels/convert-panel';
 import { RomInfoClient } from '../../rom/info-client';
 import type { LoadedRom, RomMeta } from '../../domain/rom';
 import type { Platform } from '../../platform/types';
@@ -137,9 +138,7 @@ export class App {
       filePicker: platform.filePicker,
       onLoaded: (rom) => this.loadRom(rom),
       onStatus: (text) => this.setStatus(text),
-      getRomModelId: () => this.config.get().ai.romModelId,
-      getModelConfig: (id) => this.config.get().ai.modelConfig[id] ?? {},
-      onConfigureModels: () => this.openSettingsPanel(),
+      onOpenConvert: () => this.stack.toggleL3('convert'),
     });
     this.stack.registerL2(this.romsPanel);
     const initialSpec = ALL_SPECS.find((s) => s.id === this.config.get().general.selectedConsoleId) ?? ALL_SPECS[0]!;
@@ -166,6 +165,25 @@ export class App {
       onBindingsChanged: (bindings) => this.keyboard.setBindings(bindings),
     });
     this.stack.registerL3(controlsPanel);
+
+    const convertPanel = new ConvertPanel({
+      config: this.config,
+      filePicker: platform.filePicker,
+      romLibrary: platform.romLibrary,
+      getModelConfig: (id) => this.config.get().ai.modelConfig[id] ?? {},
+      getUpscaleContext: () => {
+        const cache = this.platform.modelAssetCache;
+        if (!cache) return undefined;
+        return { loadAsset: (url, opts) => cache.load(url, opts) };
+      },
+      onStatus: (text) => this.setStatus(text),
+      onConverted: () => this.romsPanel.refreshBrowserList(),
+      onClose: () => {
+        this.stack.closeAll();
+        this.sidebar.syncActive();
+      },
+    });
+    this.stack.registerL3(convertPanel);
 
     this.sidebar.add({
       id: 'consoles',
@@ -414,12 +432,6 @@ export class App {
     document.documentElement.dataset.statusBar = visible ? 'visible' : 'hidden';
   }
 
-  /** Deep-link target for "Configure models" affordances in other panels. */
-  private openSettingsPanel(): void {
-    this.stack.openL2('settings');
-    this.sidebar.syncActive();
-  }
-
   // ----- AI upscale worker lifecycle ----------------------------------------
 
   /**
@@ -449,10 +461,15 @@ export class App {
     if (!cart.chrIsRam && !hasCache) return;
 
     const ai = this.config.get().ai;
+    const cache = this.platform.modelAssetCache;
+    const ctx = cache
+      ? { loadAsset: (url: string, opts?: { signal?: AbortSignal; onProgress?: (p: { loaded: number; total: number | null; fromCache: boolean }) => void }) => cache.load(url, opts) }
+      : undefined;
     const { client, model, usedFallback } = createUpscaleClient(
       ai.ramModelId,
       'ram-runtime',
       ai.modelConfig[ai.ramModelId] ?? {},
+      ctx,
     );
     if (usedFallback) {
       log.warn('rom', `runtime upscale: requested model "${ai.ramModelId}" unavailable; falling back to "${model.id}"`);

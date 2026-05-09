@@ -122,6 +122,24 @@ without any format change to `.poncho`.
   legacy `pv 0..3` slots match the old behaviour exactly. Total now
   453 tests pass / 1 skipped (was 443).
 
+### Added — v0.4 Phase 5a: ONNX runtime + Real-ESRGAN x4 Anime (first local model)
+
+- **`OnnxUpscaleClient`** ([`src/convert/clients/onnx-upscale-client.ts`](src/convert/clients/onnx-upscale-client.ts)) — generic ONNX-runtime-backed `UpscaleClient`. Lazy dynamic import of `onnxruntime-web` (heavy WASM bundle stays out of the main bundle until the user picks the model). Per-tile pipeline: `renderPrimer` → preprocess to NCHW/NHWC tensor in [0..1] or [-1..1] → `session.run` → postprocess → `snapToExtendedPalette` (Phase 4.6 helper). Test seam: `OrtFacade` interface + `ortFactory` / `modelLoader` hooks.
+- **Real-ESRGAN x4 Anime** registered in `upscale-registry.ts`. Hard-coded I/O shape (8×8 → 32×32, NCHW, RGB, [0..1]) matches the standard export. `cacheModelId = 1`.
+- **Browser model-asset cache** ([`src/platform/web/model-asset-cache.ts`](src/platform/web/model-asset-cache.ts)) — `WebModelAssetCache` implements the new `ModelAssetCache` Platform interface using the browser Cache Storage API. Persistent across reloads; progress events for the Settings UI bar; sidecar JSON entries for size + cachedAt metadata. Wired into the registry via `UpscaleModelContext.loadAsset` so ESRGAN weights cache after the first load.
+- **Bundled model files (`npm run setup:models`)** ([`scripts/download-models.ts`](scripts/download-models.ts), [`scripts/models-manifest.json`](scripts/models-manifest.json)) — manifest-driven downloader fetches ONNX weights into `public/models/` (gitignored). Idempotent, verifies optional `expectedSize`/`sha256`, streams with progress. The build serves files at `/models/<filename>.onnx` (Vite's `public/` convention) so prod inherits them via the deploy pipeline.
+- **Settings UI** for the per-model state (under "AI upscale", visible when ESRGAN is selected): "Installed (X MB)" / "Available (Y MB on server). Click Pre-cache to download into the browser cache" / "Model file not installed. Run `npm run setup:models`." Plus Pre-cache / Clear-browser-cache buttons + progress bar. **No URL paste field** — the model file ships with the application.
+
+The runtime CHR-RAM flow is unchanged from the NanoBanana days — just routed through the new client. Cart load → `UpscaleWorker` with the cart's existing aiCache as seed → PpuUltra resolver wired → tiles upscale in the background → 60 s flush + cart-eject write-back persists to the `.poncho`. ESRGAN's per-tile latency (5–50 ms on WebGPU) means tiles "pop in" sub-frame instead of multi-second.
+
+**Tally:** 489 tests pass / 1 skipped (was 457; +32 from `OnnxUpscaleClient`, `WebModelAssetCache`, registry context-passing). Build emits the same code-split chunks — main bundle stays small until the user opts in.
+
+### Changed — Convert UX: dedicated L3 panel, model picks per conversion
+
+- **New L3 "Convert .nes" panel** ([`src/shells/web/ui/panels/convert-panel.ts`](src/shells/web/ui/panels/convert-panel.ts)) replaces the inline checkbox + auto-fired file picker that lived in `RomsPanel`. Click "Convert .nes" → slide-out with file picker, "Use AI upscale" toggle, and (when AI is on) bake-now + runtime model dropdowns. After a successful save the form resets and L2/L3 dismiss.
+- **Model selection moved out of Settings.** AI is a per-conversion decision, not a global preference; Settings is back to Appearance / Video / Audio / Controls. `config.ai.romModelId`/`ramModelId` are kept as boot-time defaults for the ConvertPanel dropdowns.
+- **`RomsPanel` slimmed down** — no more `handleConvert` / `runAiConvert` / progress modal / AI hint markup. The Convert button now just opens the L3 panel.
+
 ### Fixed — Poncho-NES: dynamic nametable mirroring now reaches PpuUltra
 
 **Bug.** Battletoads and other dynamic-mirroring carts rendered with

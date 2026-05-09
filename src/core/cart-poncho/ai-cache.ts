@@ -33,10 +33,14 @@ export const AI_CACHE_VERSION = 1;
  * the runtime keys cache validity on this so model iteration doesn't
  * silently mix old + new outputs.
  *
- * Free-tier slots 1..0xfe are reserved for future local-model entries
- * (e.g. ESRGAN-tiny on WebGPU). 0xff is the deterministic fallback.
+ * Slot allocation policy:
+ *   - 0          unspecified (legacy carts, never produced fresh)
+ *   - 1..0xfe    local-model entries, allocated as each ships
+ *   - 0xff       deterministic nearest-neighbour fallback
  */
 export const AI_CACHE_MODEL_UNSPECIFIED = 0;
+/** Real-ESRGAN x4 Anime — first registered local model (Phase 5a). */
+export const AI_CACHE_MODEL_ESRGAN_X4_ANIME = 1;
 export const AI_CACHE_MODEL_NEAREST_NEIGHBOUR = 0xff;
 
 const SECTION_HEADER_BYTES = 4 + 2 + 2 + 4; // magic + version + model + count = 12

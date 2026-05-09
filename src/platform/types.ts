@@ -42,6 +42,53 @@ export interface ServerRomLoader {
 }
 
 /**
+ * Persistent cache for large model assets (e.g. ONNX files for AI
+ * upscale). Backed by the browser's Cache Storage API on web, and by
+ * the local filesystem on Electron / Tauri.
+ *
+ * Models are megabyte- to tens-of-megabyte-sized; caching them across
+ * reloads is essential UX. Surface is small on purpose — load-or-fetch,
+ * remove, query.
+ */
+export interface ModelAssetCache {
+  /** True if `url` is already cached (fast lookup, no network). */
+  has(url: string): Promise<boolean>;
+  /**
+   * Load model bytes — returns the cached copy if present, else fetches
+   * from `url`, caches, and returns. Progress callback is invoked for
+   * fetched bytes (`fromCache: false`); on cache hit, fired once with
+   * `loaded === total === byte length` and `fromCache: true`.
+   */
+  load(url: string, opts?: ModelLoadOptions): Promise<ArrayBuffer>;
+  /** Drop the cached copy if present. No-op if absent. */
+  remove(url: string): Promise<void>;
+  /** Return cached metadata for a URL, or null if not cached. */
+  getInfo(url: string): Promise<CachedModelInfo | null>;
+  /** List every cached entry (used by the "manage models" UI). */
+  list(): Promise<CachedModelInfo[]>;
+}
+
+export interface ModelLoadOptions {
+  signal?: AbortSignal;
+  onProgress?: (p: ModelLoadProgress) => void;
+}
+
+export interface ModelLoadProgress {
+  loaded: number;
+  /** Total expected bytes — `null` when the server omits Content-Length. */
+  total: number | null;
+  /** True when this progress event is from the cache, not a live fetch. */
+  fromCache: boolean;
+}
+
+export interface CachedModelInfo {
+  url: string;
+  size: number;
+  /** Wall-clock ms when the entry was first cached. */
+  cachedAt: number;
+}
+
+/**
  * Lets the user pick a `.nes` file from disk. The web shell wraps an
  * `<input type="file">`; Electron uses `dialog.showOpenDialog`; etc.
  *
@@ -82,6 +129,12 @@ export interface Platform {
   readonly romInfoStorage: Storage;
   /** Persistent uploaded-ROM library. */
   readonly romLibrary: RomLibrary;
+  /**
+   * Persistent cache for large model assets (ONNX upscalers etc.).
+   * `null` on platforms without one — callers fall back to plain
+   * `fetch()` + no caching. The web shell always provides one.
+   */
+  readonly modelAssetCache: ModelAssetCache | null;
   /**
    * Server-side ROM loader. `null` on shells without a development
    * server (most desktop builds).

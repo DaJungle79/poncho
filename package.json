@@ -34,6 +34,9 @@
     "typecheck": "tsc --noEmit",
     "screenshot": "tsx scripts/render-screenshot.ts \"roms/Contra (USA).nes\" docs/screenshot.png 240 2",
     "poncho:convert": "tsx scripts/poncho-convert.ts",
+    "setup:models": "tsx scripts/download-models.ts",
+    "setup:ort": "tsx scripts/setup-ort.ts",
+    "setup": "npm run setup:ort && npm run setup:models",
     "gen:poncho:solid-bg": "tsx scripts/gen-poncho-rom/solid-bg.ts",
     "gen:poncho:palette-write": "tsx scripts/gen-poncho-rom/palette-write.ts",
     "gen:poncho:solid-tile": "tsx scripts/gen-poncho-rom/solid-tile.ts",
@@ -57,6 +60,7 @@
     "vitest": "^2.1.0"
   },
   "dependencies": {
-    "lucide": "^1.14.0"
+    "lucide": "^1.14.0",
+    "onnxruntime-web": "^1.26.0"
   }
 }

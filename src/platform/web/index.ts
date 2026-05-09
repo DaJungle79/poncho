@@ -16,6 +16,7 @@ import { WebAudioSink } from './audio-sink';
 import { WebRomLibrary } from './rom-library';
 import { WebServerRomLoader } from './server-roms';
 import { WebFilePicker } from './file-picker';
+import { WebModelAssetCache } from './model-asset-cache';
 
 export function createWebPlatform(): Platform {
   return {
@@ -25,9 +26,16 @@ export function createWebPlatform(): Platform {
     romLibrary: new WebRomLibrary(),
     serverRoms: new WebServerRomLoader(),
     filePicker: new WebFilePicker(),
+    modelAssetCache: new WebModelAssetCache(),
   };
 }
 
 // Re-exports for unit tests / debug consumers that want to construct
 // individual platform pieces directly.
-export { WebAudioSink, WebRomLibrary, WebServerRomLoader, WebFilePicker };
+export {
+  WebAudioSink,
+  WebRomLibrary,
+  WebServerRomLoader,
+  WebFilePicker,
+  WebModelAssetCache,
+};

@@ -1,6 +1,5 @@
 import type { Config, ThemeId } from '../../../../config/schema';
 import type { ConfigStore } from '../../../../config/store';
-import { listUpscaleModels } from '../../../../convert/upscale-registry';
 import { mountLucideIcons } from '../icons';
 import type { Panel } from '../panel-stack';
 
@@ -35,8 +34,6 @@ export class SettingsPanel implements Panel {
   private readonly volumeRange: HTMLInputElement;
   private readonly muteCheckbox: HTMLInputElement;
   private readonly statusBarCheckbox: HTMLInputElement;
-  private readonly aiRomSelect: HTMLSelectElement;
-  private readonly aiRamSelect: HTMLSelectElement;
 
   constructor(private readonly deps: SettingsPanelDeps) {
     this.root = document.createElement('section');
@@ -109,26 +106,6 @@ export class SettingsPanel implements Panel {
         </section>
 
         <section class="settings-group">
-          <h3><i data-lucide="sparkles"></i><span>AI upscale</span></h3>
-          <p class="settings-hint">
-            Pick the upscale model used for Poncho-NES tiles. CHR-ROM
-            (bake-now at conversion) and CHR-RAM (runtime worker, tiles
-            pop in during play) can use the same model or different
-            ones — typically you want a heavier model for ROM and a
-            lighter one for RAM.
-          </p>
-          <label class="settings-row settings-row-stack">
-            <span>CHR-ROM (bake-now)</span>
-            <select data-ai-rom></select>
-          </label>
-          <label class="settings-row settings-row-stack">
-            <span>CHR-RAM (runtime)</span>
-            <select data-ai-ram></select>
-          </label>
-          <p class="settings-hint" data-ai-model-hint></p>
-        </section>
-
-        <section class="settings-group">
           <button class="settings-link" data-controls>
             <i data-lucide="keyboard"></i>
             <span>Controls</span>
@@ -150,26 +127,8 @@ export class SettingsPanel implements Panel {
     this.volumeRange = this.root.querySelector<HTMLInputElement>('[data-volume]')!;
     this.muteCheckbox = this.root.querySelector<HTMLInputElement>('[data-mute]')!;
     this.statusBarCheckbox = this.root.querySelector<HTMLInputElement>('[data-status-bar]')!;
-    this.aiRomSelect = this.root.querySelector<HTMLSelectElement>('[data-ai-rom]')!;
-    this.aiRamSelect = this.root.querySelector<HTMLSelectElement>('[data-ai-ram]')!;
-    this.populateAiSelectors();
 
     this.bindEvents();
-  }
-
-  private populateAiSelectors(): void {
-    const models = listUpscaleModels();
-    for (const select of [this.aiRomSelect, this.aiRamSelect]) {
-      select.innerHTML = '';
-      const workflow = select === this.aiRomSelect ? 'rom-bake' : 'ram-runtime';
-      for (const m of models) {
-        const opt = document.createElement('option');
-        opt.value = m.id;
-        opt.textContent = m.label;
-        opt.disabled = !m.supportedWorkflows.includes(workflow);
-        select.appendChild(opt);
-      }
-    }
   }
 
   onShow(): void {
@@ -180,9 +139,6 @@ export class SettingsPanel implements Panel {
     this.volumeRange.value = String(Math.round(cfg.audio.volume * 100));
     this.muteCheckbox.checked = cfg.audio.muted;
     this.statusBarCheckbox.checked = cfg.general.showStatusBar;
-    this.aiRomSelect.value = cfg.ai.romModelId;
-    this.aiRamSelect.value = cfg.ai.ramModelId;
-    this.syncAiHint();
     this.syncOverscanUI(cfg);
     this.applyScalerAvailability(cfg.general.selectedConsoleId);
   }
@@ -293,39 +249,6 @@ export class SettingsPanel implements Panel {
     this.root
       .querySelector<HTMLButtonElement>('[data-controls]')!
       .addEventListener('click', () => this.deps.onOpenControls());
-
-    this.aiRomSelect.addEventListener('change', () => {
-      const cfg = this.deps.config.update((c) => ({
-        ...c,
-        ai: { ...c.ai, romModelId: this.aiRomSelect.value },
-      }));
-      this.syncAiHint();
-      this.deps.onConfigChanged(cfg);
-    });
-    this.aiRamSelect.addEventListener('change', () => {
-      const cfg = this.deps.config.update((c) => ({
-        ...c,
-        ai: { ...c.ai, ramModelId: this.aiRamSelect.value },
-      }));
-      this.syncAiHint();
-      this.deps.onConfigChanged(cfg);
-    });
-  }
-
-  /**
-   * Compose the per-selection description blurb under the dropdowns —
-   * users see what trade-off they just picked.
-   */
-  private syncAiHint(): void {
-    const hint = this.root.querySelector<HTMLElement>('[data-ai-model-hint]');
-    if (!hint) return;
-    const models = listUpscaleModels();
-    const rom = models.find((m) => m.id === this.aiRomSelect.value);
-    const ram = models.find((m) => m.id === this.aiRamSelect.value);
-    const lines: string[] = [];
-    if (rom) lines.push(`<strong>ROM:</strong> ${rom.description}`);
-    if (ram && (!rom || ram.id !== rom.id)) lines.push(`<strong>RAM:</strong> ${ram.description}`);
-    hint.innerHTML = lines.join('<br><br>');
   }
 }
 

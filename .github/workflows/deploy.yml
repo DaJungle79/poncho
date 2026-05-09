@@ -24,6 +24,15 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - name: Set up ONNX Runtime Web + AI upscale models
+        run: npm run setup
+        # `setup:ort` copies onnxruntime-web's WASM runtime files
+        # (~74 MB) into public/ort/ so Vite serves them at /ort/.
+        # `setup:models` fetches AI upscale model weights (~64 MB)
+        # into public/models/. Both get baked into dist/ via Vite's
+        # public/ → dist/ copy. Failures here are non-fatal — the app
+        # still ships, just without the AI upscale option.
+        continue-on-error: true
       - run: npm run build
         env:
           VITE_BASE_PATH: /poncho/
