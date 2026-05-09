@@ -122,6 +122,44 @@ without any format change to `.poncho`.
   legacy `pv 0..3` slots match the old behaviour exactly. Total now
   453 tests pass / 1 skipped (was 443).
 
+### Fixed — Poncho-NES: dynamic nametable mirroring now reaches PpuUltra
+
+**Bug.** Battletoads and other dynamic-mirroring carts rendered with
+the wrong nametable mid-game. `PonchoNes.loadRom` called
+`ppu.setMirroring(cart.mapper.mirroring())` exactly once at boot;
+PpuUltra cached the value and read from cache during render. AxROM
+flips single-low ↔ single-high on every PRG write to `$8000-$FFFF`,
+MMC1 changes mirroring via its control register, MMC3 via `$A000` —
+all silently lost. Stage transitions, status-bar splits, and
+parallax effects rendered against stale mirroring.
+
+**Fix.** PpuUltra grows a `setMirroringSource(fn: () => Mirroring)`
+callback that mirrors the design of the existing `chrReader` —
+installed once, queried live on every nametable fetch. `PonchoNes`
+wires it to `() => cart.mapper.mirroring()` in `loadRom`, clears it
+in `unload`. The cached `nametableMirroring` field stays as a
+fallback for hand-crafted Poncho-NES games + tests that drive the
+PPU directly without a cartridge mapper.
+
+The change parallels classic NES — `PpuBus.mirrorNametable()` already
+does `mapper.mirroring()` on every fetch — so both PPUs now share
+the same architectural pattern for mapper-driven dynamic state.
+
+- [`src/core/ppu-ultra/ppu-ultra.ts`](src/core/ppu-ultra/ppu-ultra.ts):
+  new `mirroringSource` field + `setMirroringSource()` setter +
+  private `currentMirroring()` getter. Six render-path call sites
+  (BG fixed-Y native render, BG upscaled-mode render, native
+  per-tile-pixel helper, sprite render, `readVramByte`, `vramWrite`)
+  switched from direct field reads to the getter.
+- [`src/console/poncho-nes.ts`](src/console/poncho-nes.ts): `loadRom`
+  installs `() => cart.mapper.mirroring()` after `setMasterPalette`;
+  `unload` clears it.
+- [`tests/ppu-ultra/mirroring-source.test.ts`](tests/ppu-ultra/mirroring-source.test.ts):
+  4 new tests covering source-overrides-cached, source-then-null,
+  AxROM-style mid-game flip, and initial-fallback-without-source.
+
+Total now 457 pass / 1 skipped (was 453).
+
 ## [0.3.0] — 2026-05-07
 
 > Poncho-NES native runtime + iNES converter. The runtime gains everything needed

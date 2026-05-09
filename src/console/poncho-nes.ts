@@ -76,6 +76,14 @@ export class PonchoNes implements Console {
     this.cartridge = cart;
     this.cpuBus.setCartridge(cart);
     this.ppu.setMasterPalette(cart.palette);
+    // Live mirroring source — mirrors the design of `setChrReader`.
+    // Mappers that flip nametable mirroring at runtime (AxROM bit 4,
+    // MMC1 control register, MMC3 $A000) have their changes picked up
+    // on the next nametable fetch; without this, PpuUltra would render
+    // forever with the boot-time mirroring even though the cartridge
+    // had switched modes mid-game (broke Battletoads, Castlevania II,
+    // many Zelda/Metroid scenes).
+    this.ppu.setMirroringSource(() => cart.mapper.mirroring());
     this.ppu.setMirroring(cart.mapper.mirroring());
 
     // Upscaled-mode cartridges (converted iNES games) speak NES-shape CHR:
@@ -103,6 +111,7 @@ export class PonchoNes implements Console {
     this.ppu.setChr(null);
     this.ppu.setChrReader(null);
     this.ppu.setChrWriter(null);
+    this.ppu.setMirroringSource(null);
     this.ppu.setUpscaledMode(false);
   }
 

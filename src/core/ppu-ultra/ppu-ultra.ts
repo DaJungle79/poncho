@@ -83,8 +83,27 @@ export class PpuUltra {
    */
   readonly nametableRam = new Uint8Array(NAMETABLE_RAM_SIZE);
 
-  /** Active nametable mirroring. Set by the composition from `mapper.mirroring()`. */
+  /**
+   * Cached fallback mirroring — only honoured when `mirroringSource`
+   * is `null`. Used by hand-crafted Poncho-NES games + tests that
+   * drive the PPU directly without a cartridge mapper.
+   */
   private nametableMirroring: Mirroring = 'horizontal';
+
+  /**
+   * Source-of-truth callback for the active nametable mirroring.
+   * `PonchoNes.loadRom` wires this to `() => cart.mapper.mirroring()`
+   * so that mappers which flip mirroring at runtime (AxROM bit 4,
+   * MMC1 control register, MMC3 $A000) take effect on the next
+   * nametable fetch — the same architecture the classic-NES PpuBus
+   * uses (`mapper.mirroring()` queried per fetch). When `null`, the
+   * cached `nametableMirroring` field is used as the fallback.
+   *
+   * Mirrors the design of `chrReader` (set once, queried live), so
+   * mapper-driven dynamic state has a single consistent shape across
+   * CHR access and nametable mirroring.
+   */
+  private mirroringSource: (() => Mirroring) | null = null;
 
   /**
    * Sprite RAM. 64 sprites × 8 bytes — y(16), x(16), tile(16), attr,
@@ -257,6 +276,26 @@ export class PpuUltra {
   }
 
   /**
+   * Install (or clear) the live mirroring source. The composition
+   * (`PonchoNes.loadRom`) wires this to `() => cart.mapper.mirroring()`
+   * so AxROM / MMC1 / MMC3 mid-game mirroring flips are picked up on
+   * the next nametable fetch. Pass `null` to fall back to the cached
+   * `setMirroring(m)` value (used by hand-crafted tests).
+   */
+  setMirroringSource(fn: (() => Mirroring) | null): void {
+    this.mirroringSource = fn;
+  }
+
+  /**
+   * Live mirroring read — preferred call site for all render-path
+   * code. Captures the value once per high-level pass (scanline /
+   * frame / VRAM byte) so the inner pixel loop stays branch-free.
+   */
+  private currentMirroring(): Mirroring {
+    return this.mirroringSource ? this.mirroringSource() : this.nametableMirroring;
+  }
+
+  /**
    * Select the upscaled (NES-format) BG render path. The companion
    * `setChrReader` provides the CHR fetch source; `setChrWriter` lets PRG
    * upload tiles to CHR-RAM via $2007.
@@ -362,7 +401,7 @@ export class PpuUltra {
     if (addr < 0x2000) return this.chrReader ? (this.chrReader(addr) & 0xff) : 0;
     if (addr < 0x3f00) {
       const logicalNT = (addr >> 10) & 0x3;
-      const physicalNT = resolvePhysicalNT(logicalNT, this.nametableMirroring);
+      const physicalNT = resolvePhysicalNT(logicalNT, this.currentMirroring());
       return this.nametableRam[physicalNT * NAMETABLE_SIZE + (addr & 0x03ff)]!;
     }
     return this.paletteRam[mirrorPaletteAddr(addr)]!;
@@ -551,7 +590,7 @@ export class PpuUltra {
       const virtualHeight = SOURCE_HEIGHT * 2;
       const effSx = (sx + baseNTH * SOURCE_WIDTH)  % virtualWidth;
       const effSy = (sy + baseNTV * SOURCE_HEIGHT) % virtualHeight;
-      const mirroring = this.nametableMirroring;
+      const mirroring = this.currentMirroring();
       const ntRam = this.nametableRam;
 
       // Per-pixel walk so scroll values that aren't tile-aligned still
@@ -694,7 +733,7 @@ export class PpuUltra {
     const masterLen = master.length;
     const ntRam = this.nametableRam;
     const bgPatternBase = this.bgPatternBase;
-    const mirroring = this.nametableMirroring;
+    const mirroring = this.currentMirroring();
 
     const NES_W = 256;
     const NES_H = 240;
@@ -940,7 +979,7 @@ export class PpuUltra {
       // Logical nametable from PPU address: bits 10-11 select NT 0..3.
       // The mirroring lookup folds it onto the two physical pages.
       const logicalNT = (addr >> 10) & 0x3;
-      const physicalNT = resolvePhysicalNT(logicalNT, this.nametableMirroring);
+      const physicalNT = resolvePhysicalNT(logicalNT, this.currentMirroring());
       const offset = physicalNT * NAMETABLE_SIZE + (addr & 0x03ff);
       this.nametableRam[offset] = value;
       return;
@@ -981,7 +1020,7 @@ export class PpuUltra {
     const tileLocalX = localNesX & 7;
     const tileLocalY = localNesY & 7;
     const logicalNT = ntV * 2 + ntH;
-    const physicalNT = resolvePhysicalNT(logicalNT, this.nametableMirroring);
+    const physicalNT = resolvePhysicalNT(logicalNT, this.currentMirroring());
     const physBase = physicalNT * NAMETABLE_SIZE;
     const tileIdx = this.nametableRam[physBase + tileRow * TILE_COLS + tileCol]!;
     const baseAddr = this.bgPatternBase + tileIdx * 16;
