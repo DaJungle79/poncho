@@ -31,9 +31,17 @@ async function flush(times = 4): Promise<void> {
   for (let i = 0; i < times; i++) await Promise.resolve();
 }
 
+/**
+ * Synchronous-style scheduler for tests — schedules via `Promise.resolve`
+ * so `await flush()` drains the queue. The production default is
+ * `setTimeout(0)` (yields to the browser between bakes); tests don't
+ * want a real timer in the loop.
+ */
+const microSchedule = (fn: () => void): void => { void Promise.resolve().then(fn); };
+
 describe('UpscaleWorker — first-time miss and async resolution', () => {
   it('returns null on first call, then resolves the tile in the background', async () => {
-    const w = new UpscaleWorker({ client: new MockUpscaleClient() });
+    const w = new UpscaleWorker({ client: new MockUpscaleClient(), schedule: microSchedule });
     expect(w.resolveSync(SAMPLE_TILE, SAMPLE_PAL)).toBeNull();
     expect(w.pendingCount()).toBe(1);
     await flush();
@@ -51,7 +59,7 @@ describe('UpscaleWorker — first-time miss and async resolution', () => {
       modelId: 99,
       async upscaleTile(t, p) { calls++; return new MockUpscaleClient().upscaleTile(t, p); },
     };
-    const w = new UpscaleWorker({ client: slowClient });
+    const w = new UpscaleWorker({ client: slowClient, schedule: microSchedule });
     w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
     w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
     w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
@@ -66,7 +74,7 @@ describe('UpscaleWorker — first-time miss and async resolution', () => {
       modelId: 99,
       async upscaleTile(t, p) { calls++; return new MockUpscaleClient().upscaleTile(t, p); },
     };
-    const w = new UpscaleWorker({ client });
+    const w = new UpscaleWorker({ client, schedule: microSchedule });
     const pal2 = new Uint8Array([0x0f, 0x16, 0x30, 0x20]); // 1 byte differs
     w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
     w.resolveSync(SAMPLE_TILE, pal2);
@@ -87,7 +95,7 @@ describe('UpscaleWorker — global cache promotion', () => {
     const hash = hashTileSync(SAMPLE_TILE, TILE_HASH_PALETTE);
     await cache.put(hash, 7, seeded);
 
-    const w = new UpscaleWorker({ client, globalCache: cache });
+    const w = new UpscaleWorker({ client, globalCache: cache, schedule: microSchedule });
     w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
     await flush();
     expect(clientCalls).toBe(0);
@@ -98,7 +106,7 @@ describe('UpscaleWorker — global cache promotion', () => {
   it('writes new tiles to globalCache on success', async () => {
     const client = new MockUpscaleClient();
     const cache = new MemoryGlobalCache();
-    const w = new UpscaleWorker({ client, globalCache: cache });
+    const w = new UpscaleWorker({ client, globalCache: cache, schedule: microSchedule });
     w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
     await flush();
 
@@ -121,7 +129,7 @@ describe('UpscaleWorker — disk seed', () => {
       modelId: AI_CACHE_MODEL_NEAREST_NEIGHBOUR,
       async upscaleTile() { clientCalls++; return new Uint8Array(1024); },
     };
-    const w = new UpscaleWorker({ client, seed });
+    const w = new UpscaleWorker({ client, seed, schedule: microSchedule });
 
     // First query: should hit the seed map sync (no async fetch).
     const result = w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
@@ -145,7 +153,7 @@ describe('UpscaleWorker — disk seed', () => {
       entries: [{ hash: hexToHash(hash), nesTile: SAMPLE_TILE, nativeTile: native }],
     };
     const client = new MockUpscaleClient(); // modelId = NEAREST_NEIGHBOUR
-    const w = new UpscaleWorker({ client, seed });
+    const w = new UpscaleWorker({ client, seed, schedule: microSchedule });
 
     const result = w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
     expect(result).not.toBeNull();
@@ -156,7 +164,7 @@ describe('UpscaleWorker — disk seed', () => {
 describe('UpscaleWorker — onTileReady + dirty', () => {
   it('fires onTileReady when a fetch completes and marks dirty', async () => {
     const onTileReady = vi.fn();
-    const w = new UpscaleWorker({ client: new MockUpscaleClient(), onTileReady });
+    const w = new UpscaleWorker({ client: new MockUpscaleClient(), onTileReady, schedule: microSchedule });
     expect(w.isDirty()).toBe(false);
     w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
     await flush();
@@ -179,7 +187,7 @@ describe('UpscaleWorker — failure handling', () => {
         return new Uint8Array(1024).fill(0x55);
       },
     };
-    const w = new UpscaleWorker({ client: flaky });
+    const w = new UpscaleWorker({ client: flaky, schedule: microSchedule });
     w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
     await flush();
     expect(w.pendingCount()).toBe(0);
@@ -197,14 +205,14 @@ describe('UpscaleWorker — failure handling', () => {
       modelId: 99,
       async upscaleTile() { throw new Error('nope'); },
     };
-    const w = new UpscaleWorker({ client: bad });
+    const w = new UpscaleWorker({ client: bad, schedule: microSchedule });
     expect(() => w.resolveSync(SAMPLE_TILE, SAMPLE_PAL)).not.toThrow();
   });
 });
 
 describe('UpscaleWorker — toSection (write-back)', () => {
   it('serialises completed entries with their hash + nesTile + native', async () => {
-    const w = new UpscaleWorker({ client: new MockUpscaleClient() });
+    const w = new UpscaleWorker({ client: new MockUpscaleClient(), schedule: microSchedule });
     w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
     await flush();
 
@@ -223,7 +231,7 @@ describe('UpscaleWorker — toSection (write-back)', () => {
       modelId: 99,
       upscaleTile: () => new Promise(() => { /* never */ }),
     };
-    const w = new UpscaleWorker({ client: neverResolve });
+    const w = new UpscaleWorker({ client: neverResolve, schedule: microSchedule });
     w.resolveSync(SAMPLE_TILE, SAMPLE_PAL);
     await flush();
     expect(w.toSection().entries.length).toBe(0);

@@ -35,7 +35,7 @@
  * layout PpuUltra uses internally: `(a << 24) | (b << 16) | (g << 8) | r`.
  */
 
-import { lerpOklab } from './oklch';
+import { oklabToSrgb, srgbToOklab } from './oklch';
 
 /** Total entries in an extended sub-palette. */
 export const EXTENDED_PALETTE_SIZE = 256;
@@ -110,20 +110,35 @@ function fillRamp(out: Uint32Array, start: number, baseRgba: number): void {
   const b = (baseRgba >> 16) & 0xff;
   const a = (baseRgba >> 24) & 0xff;
 
+  // Pre-compute the three Oklab anchor points (black, base, white)
+  // ONCE rather than re-converting inside every shade. The previous
+  // implementation called `lerpOklab` per shade, which did sRGB→Oklab
+  // for both endpoints (6 cube roots + 2 gamma decode pow calls × 2
+  // endpoints) on every iteration — ~84 redundant conversions per
+  // ramp. Pre-computing cuts the per-shade cost to a single Oklab
+  // lerp + back-conversion (1 cube + 1 gamma encode pow per channel).
+  const blackLab = srgbToOklab(0, 0, 0);
+  const baseLab = srgbToOklab(r, g, b);
+  const whiteLab = srgbToOklab(255, 255, 255);
+
   for (let shade = 0; shade < RAMP_LENGTH; shade++) {
-    let nr: number, ng: number, nb: number;
+    let blended: { r: number; g: number; b: number };
     if (shade <= RAMP_BASE_SHADE) {
-      // Black at shade 0 → base at shade RAMP_BASE_SHADE.
       const t = shade / RAMP_BASE_SHADE;
-      const blended = lerpOklab(0, 0, 0, r, g, b, t);
-      nr = blended.r; ng = blended.g; nb = blended.b;
+      blended = oklabToSrgb(
+        blackLab.L + (baseLab.L - blackLab.L) * t,
+        blackLab.a + (baseLab.a - blackLab.a) * t,
+        blackLab.b + (baseLab.b - blackLab.b) * t,
+      );
     } else {
-      // Base at shade RAMP_BASE_SHADE → white at shade RAMP_LENGTH-1.
       const t = (shade - RAMP_BASE_SHADE) / (RAMP_LENGTH - 1 - RAMP_BASE_SHADE);
-      const blended = lerpOklab(r, g, b, 255, 255, 255, t);
-      nr = blended.r; ng = blended.g; nb = blended.b;
+      blended = oklabToSrgb(
+        baseLab.L + (whiteLab.L - baseLab.L) * t,
+        baseLab.a + (whiteLab.a - baseLab.a) * t,
+        baseLab.b + (whiteLab.b - baseLab.b) * t,
+      );
     }
-    out[start + shade] = ((a << 24) | (nb << 16) | (ng << 8) | nr) >>> 0;
+    out[start + shade] = ((a << 24) | (blended.b << 16) | (blended.g << 8) | blended.r) >>> 0;
   }
 }
 

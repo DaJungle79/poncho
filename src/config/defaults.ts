@@ -17,7 +17,7 @@ export const DEFAULT_PLAYER2_KEYS: KeyBindings = {};
 export const DEFAULT_CONFIG: Config = {
   version: CONFIG_VERSION,
   video: {
-    scaler: 'nearest-2x',
+    scaler: 'xbrz-4x',
     preFilters: [],
     postFilters: [],
     overscan: { enabled: true, top: 0, bottom: 0, left: 8, right: 0 },

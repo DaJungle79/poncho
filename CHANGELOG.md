@@ -7,6 +7,19 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+### Added — v0.5 phase 5: settings UI + scaler defaults
+
+- **Scaler dropdown groups** — the Scale selector in Settings is now split into three `<optgroup>`s: Nearest-neighbour (1×/2×/4×), xBRZ (2×–6×), and MMPX (2×). A hint below the selector describes the tradeoff.
+- **Classic NES defaults to xBRZ 4×** — when NES is selected and the stored scaler is `nearest-1x` (e.g. arriving from Poncho-NES which forces that value), it is automatically bumped to `xbrz-4x`. New installs also start at `xbrz-4x` (changed `DEFAULT_CONFIG.video.scaler`).
+- **Poncho-NES scaler guard (fixed)** — all non-`nearest-1x` pipeline scalers are now disabled in the dropdown and auto-downgraded when Poncho-NES is active. The previous fix only caught `nearest-2x`/`nearest-4x`; xBRZ and MMPX scalers slipped through, causing ~12 fps on the 1024×960 framebuffer. The downgrade now reads from `ConfigStore` directly (not `scaleSelect.value`) so it fires correctly at boot before `onShow` has synced the `<select>`.
+
+### Changed — v0.5 phase 5: performance
+
+- **`XbrzUpscaleClient` extended-palette cache** — the per-tile `buildExtendedSubPalette` call (252 Oklab lerps ≈ 2 500 transcendental operations) is now cached by 4-byte sub-palette key with a 32-entry LRU eviction. Tiles sharing a sub-palette (the common case) skip the build entirely on subsequent calls.
+- **`XbrzUpscaleClient` scratch buffers** — `primerU32` and `xbrzOut` are pre-allocated once on the client instance and reused each `upscaleTile` call, avoiding two per-tile `Uint32Array` allocations.
+- **`fillRamp` Oklab anchor pre-computation** — the three Oklab anchor points (black, base, white) are now computed once per ramp call rather than inside the per-shade loop, cutting redundant `sRGB→Oklab` conversions from ~84 to 3 per ramp.
+- **`UpscaleWorker` scheduler** — changed from `queueMicrotask` to `setTimeout(fn, 0)`. `queueMicrotask` drained the entire bake queue before the next paint, freezing the UI during warm-up. `setTimeout(0)` yields back to the browser between bakes so render frames interleave. Tests inject a microtask-based scheduler explicitly to keep `await flush()` working.
+
 ## [0.4.0] — 2026-05-10
 
 v0.4.0 — AI-driven CHR upscaling for Poncho-NES carts. Originally targeted Google's nanobanana / Gemini 2.5 Flash Image cloud API; pivoted to local ONNX models (Phase 4.7) and ultimately to a UI-stripped "attach your own model" path after the Phase 5a candidate models (Real-ESRGAN, AnimeSharp, SPAN-x4) all failed quality / runtime / export bars on pixel-art primer. The infrastructure that survived (PonchoROM AI cache section, runtime upscale worker, PpuUltra resolver hook, repack/write-back, model registry, `OnnxUpscaleClient`, browser model-asset cache, Node CLI bake) is what Phase 5b/5c will build the next-generation pixel-art-trained model on top of. See [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md). Game-by-game validation + regression harness moved to [`docs/v0.6.0-plan.md`](docs/v0.6.0-plan.md).

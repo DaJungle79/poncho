@@ -64,11 +64,27 @@ export class SettingsPanel implements Panel {
           <label class="settings-row">
             <span>Scale</span>
             <select data-scale>
-              <option value="nearest-1x">1×</option>
-              <option value="nearest-2x">2×</option>
-              <option value="nearest-4x">4×</option>
+              <optgroup label="Nearest-neighbour">
+                <option value="nearest-1x">1×</option>
+                <option value="nearest-2x">2×</option>
+                <option value="nearest-4x">4×</option>
+              </optgroup>
+              <optgroup label="xBRZ (smooth, curve-fitted)">
+                <option value="xbrz-2x">xBRZ 2×</option>
+                <option value="xbrz-3x">xBRZ 3×</option>
+                <option value="xbrz-4x">xBRZ 4×</option>
+                <option value="xbrz-5x">xBRZ 5×</option>
+                <option value="xbrz-6x">xBRZ 6×</option>
+              </optgroup>
+              <optgroup label="MMPX (clean, pixel-art)">
+                <option value="mmpx-2x">MMPX 2×</option>
+              </optgroup>
             </select>
           </label>
+          <p class="settings-hint">
+            xBRZ smooths edges with curves; MMPX preserves the pixel-art look.
+            Higher numbers = larger output.
+          </p>
           <label class="settings-row">
             <span>Overscan crop</span>
             <input type="checkbox" data-overscan />
@@ -144,11 +160,21 @@ export class SettingsPanel implements Panel {
   }
 
   /**
-   * Update which scaler options are available based on the active
-   * console. Poncho-NES already renders to a 1024×960 framebuffer —
-   * 2× and 4× would balloon to 2048×1920 / 4096×3840 with no benefit
-   * (CSS already scales the display for big monitors). Disabled here.
-   * If the current selection is no longer available, it falls back to 1×.
+   * Poncho-NES already renders to a 1024×960 framebuffer. Any pipeline
+   * scaler other than nearest-1x would balloon the output (nearest-2x →
+   * 2048×1920, xbrz-4x → 4096×3840) with no benefit — CSS handles
+   * display scaling — and a severe cost: frame rate drops from 60 fps
+   * to ~12 fps or worse on typical hardware.
+   *
+   * The xBRZ/MMPX tile-level upscaling for Poncho-NES is handled by the
+   * UpscaleWorker inside the PPU, not by this pipeline scaler. Applying
+   * a pipeline scaler on top of the already-1024×960 framebuffer just
+   * re-scales an already-upscaled image at high cost.
+   *
+   * All non-nearest-1x options are disabled for Poncho-NES and any
+   * stored non-nearest-1x value is downgraded at console-select time.
+   * Reads from config (not scaleSelect.value) so the downgrade fires
+   * correctly at boot before onShow has synced the <select>.
    */
   setConsoleId(consoleId: string): void {
     this.applyScalerAvailability(consoleId);
@@ -165,18 +191,37 @@ export class SettingsPanel implements Panel {
   }
 
   private applyScalerAvailability(consoleId: string): void {
-    const restrictTo1x = consoleId === 'poncho-nes';
+    const isPoncho = consoleId === 'poncho-nes';
     for (const option of this.scaleSelect.options) {
-      option.disabled = restrictTo1x && option.value !== 'nearest-1x';
+      option.disabled = isPoncho && option.value !== 'nearest-1x';
     }
-    if (restrictTo1x && this.scaleSelect.value !== 'nearest-1x') {
-      this.scaleSelect.value = 'nearest-1x';
-      const cfg = this.deps.config.update((c) => ({
-        ...c,
-        video: { ...c.video, scaler: 'nearest-1x' },
-      }));
-      this.deps.onConfigChanged(cfg);
+
+    if (isPoncho) {
+      const cur = this.deps.config.get().video.scaler;
+      if (cur !== 'nearest-1x') {
+        this.scaleSelect.value = 'nearest-1x';
+        const cfg = this.deps.config.update((c) => ({
+          ...c,
+          video: { ...c.video, scaler: 'nearest-1x' },
+        }));
+        this.deps.onConfigChanged(cfg);
+      }
+    } else if (consoleId === 'nes') {
+      // If arriving from Poncho-NES, the scaler was forced to nearest-1x.
+      // nearest-1x looks terrible on the 256×240 NES framebuffer — bump
+      // it to xbrz-4x so the user gets a decent picture without having
+      // to reconfigure.
+      const cur = this.deps.config.get().video.scaler;
+      if (cur === 'nearest-1x') {
+        this.scaleSelect.value = 'xbrz-4x';
+        const cfg = this.deps.config.update((c) => ({
+          ...c,
+          video: { ...c.video, scaler: 'xbrz-4x' },
+        }));
+        this.deps.onConfigChanged(cfg);
+      }
     }
+
     // Overscan only applies to Classic NES — hide the section for other consoles.
     this.overscanSection.hidden = consoleId !== 'nes';
   }

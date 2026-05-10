@@ -60,7 +60,13 @@ export interface UpscaleWorkerConfig {
    * read, so missing this notification only affects timing.
    */
   onTileReady?: () => void;
-  /** Override scheduler (tests). Defaults to `queueMicrotask`. */
+  /**
+   * Override scheduler (tests). Defaults to `setTimeout(fn, 0)` —
+   * yields back to the browser between scheduled bakes so render
+   * frames can interleave. (`queueMicrotask` would dump the whole
+   * queue before the next paint, freezing the UI for the warm-up
+   * window.)
+   */
   schedule?: (fn: () => void) => void;
 }
 
@@ -92,9 +98,7 @@ export class UpscaleWorker {
     this.globalCache = config.globalCache ?? null;
     this.onTileReady = config.onTileReady ?? null;
     this.schedule = config.schedule
-      ?? (typeof queueMicrotask !== 'undefined'
-        ? (fn) => queueMicrotask(fn)
-        : (fn) => Promise.resolve().then(fn));
+      ?? ((fn) => setTimeout(fn, 0));
 
     if (config.seed) {
       // Always load the seed regardless of `seed.model` — even when the
