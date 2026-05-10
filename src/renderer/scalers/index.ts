@@ -1,10 +1,12 @@
 import { NearestNeighborScaler, type NearestNeighborScale } from './nearest-neighbor';
 import { XbrzScaler } from './xbrz';
+import { MmpxScaler } from './mmpx';
 import type { Scaler } from './scaler';
 
 export type ScalerId =
   | 'nearest-1x' | 'nearest-2x' | 'nearest-4x'
-  | 'xbrz-2x' | 'xbrz-3x' | 'xbrz-4x' | 'xbrz-5x' | 'xbrz-6x';
+  | 'xbrz-2x' | 'xbrz-3x' | 'xbrz-4x' | 'xbrz-5x' | 'xbrz-6x'
+  | 'mmpx-2x';
 
 const FACTORIES: Record<ScalerId, () => Scaler> = {
   'nearest-1x': () => new NearestNeighborScaler(1),
@@ -15,6 +17,7 @@ const FACTORIES: Record<ScalerId, () => Scaler> = {
   'xbrz-4x': () => new XbrzScaler(4),
   'xbrz-5x': () => new XbrzScaler(5),
   'xbrz-6x': () => new XbrzScaler(6),
+  'mmpx-2x': () => new MmpxScaler(),
 };
 
 export function createScaler(id: ScalerId): Scaler {
@@ -30,3 +33,4 @@ export const AVAILABLE_SCALERS: readonly ScalerId[] = Object.keys(FACTORIES) as 
 export type { Scaler };
 export { NearestNeighborScaler };
 export { XbrzScaler };
+export { MmpxScaler };
