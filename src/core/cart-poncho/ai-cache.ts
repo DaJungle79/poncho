@@ -42,6 +42,7 @@ export const AI_CACHE_MODEL_UNSPECIFIED = 0;
 /** Real-ESRGAN-x4plus — first registered local model (Phase 5a). */
 export const AI_CACHE_MODEL_ESRGAN_X4_PLUS = 1;
 export const AI_CACHE_MODEL_SPAN_X4_CH48 = 2;
+export const AI_CACHE_MODEL_XBRZ_4X = 3;
 export const AI_CACHE_MODEL_NEAREST_NEIGHBOUR = 0xff;
 
 const SECTION_HEADER_BYTES = 4 + 2 + 2 + 4; // magic + version + model + count = 12

@@ -37,8 +37,12 @@ export const DEFAULT_CONFIG: Config = {
     selectedConsoleId: 'nes',
   },
   ai: {
-    romModelId: 'nearest-neighbour',
-    ramModelId: 'nearest-neighbour',
+    // v0.5: xbrz-4x-snap is the default for both bake-now (CHR-ROM)
+    // and runtime (CHR-RAM) — deterministic, free, visibly better
+    // than NN. Users can switch back to nearest-neighbour from the
+    // Convert panel.
+    romModelId: 'xbrz-4x-snap',
+    ramModelId: 'xbrz-4x-snap',
     modelConfig: {},
   },
 };

@@ -25,12 +25,14 @@ import {
   AI_CACHE_MODEL_ESRGAN_X4_PLUS,
   AI_CACHE_MODEL_NEAREST_NEIGHBOUR,
   AI_CACHE_MODEL_UNSPECIFIED,
+  AI_CACHE_MODEL_XBRZ_4X,
 } from '../core/cart-poncho/ai-cache';
 import { MockUpscaleClient, type UpscaleClient } from './upscale-client';
 import {
   OnnxUpscaleClient,
   type OnnxUpscaleClientConfig,
 } from './clients/onnx-upscale-client';
+import { XbrzUpscaleClient } from '../runtime/xbrz-upscale-client';
 
 /** Workflow the model is being instantiated for. Future-proof. */
 export type UpscaleWorkflow = 'rom-bake' | 'ram-runtime';
@@ -274,22 +276,52 @@ export const ESRGAN_X4_PLUS_MODEL: UpscaleModel = {
   },
 };
 
-// The shipped registry intentionally exposes only the deterministic NN
-// fallback. ESRGAN, AnimeSharp, and SPAN-x4 were investigated as Phase
-// 5a candidates but each had quality/runtime issues unfit for the
-// browser path: ESRGAN's photo-trained weights produced sub-perceptual
-// changes on pixel-art primer; AnimeSharp's fp16 export hit Node ORT
-// binding edge cases; SPAN-x4's external-data shipped export produced
-// scrambled tiles. The model machinery is preserved
-// (`OnnxUpscaleClient`, `UpscaleModelContext`, the
-// `ESRGAN_X4_PLUS_MODEL_URL` constant) so users can attach a custom
-// `.onnx` from the Convert panel without rebuilding the app.
+/**
+ * xBRZ 4× with palette-aware snap-back to the Phase 4.6 extended
+ * sub-palette. Deterministic, free, ~5-15 ms per tile. Output is
+ * 1024-byte pv-encoded → cacheable in `.poncho` AI cache section,
+ * write-back-able by the runtime worker.
+ *
+ * v0.5 headline feature. See `docs/v0.5.0-plan.md` for the full
+ * design discussion (per-tile vs. post-render xBRZ; cross-base
+ * blend caveat; perceptual ramp interpolation interaction).
+ */
+export const XBRZ_4X_SNAP_MODEL: UpscaleModel = {
+  id: 'xbrz-4x-snap',
+  label: 'xBRZ 4× (palette-aware, deterministic)',
+  description:
+    'Pixel-art-aware super-resolution. Smooths diagonal edges by ' +
+    'curve-fitting and alpha-blending source colours, then snaps each ' +
+    'output pixel to the nearest entry in the runtime extended ' +
+    'sub-palette (84-shade ramps per base). No model file, no external ' +
+    'dependencies. Output is cacheable in the .poncho AI cache section.',
+  cacheModelId: AI_CACHE_MODEL_XBRZ_4X,
+  supportedWorkflows: ['rom-bake', 'ram-runtime'],
+  create(_workflow, _config, _ctx) {
+    return new XbrzUpscaleClient();
+  },
+};
+
+// xBRZ-snap is the new default. Nearest-neighbour stays as the
+// deterministic floor for users who explicitly want NN-only output;
+// the previous v0.4 ML candidates (ESRGAN, AnimeSharp, SPAN-x4) are
+// no longer registered (they failed the quality/runtime/export bars
+// — see v0.4 Phase 5a notes). The model machinery is preserved
+// (OnnxUpscaleClient, UpscaleModelContext, ESRGAN_X4_PLUS_MODEL_URL)
+// so users can attach a custom `.onnx` from the Convert panel
+// without rebuilding the app.
 const MODELS: Record<string, UpscaleModel> = {
+  [XBRZ_4X_SNAP_MODEL.id]: XBRZ_4X_SNAP_MODEL,
   [NEAREST_NEIGHBOUR_MODEL.id]: NEAREST_NEIGHBOUR_MODEL,
 };
 
 /** Default model id — what a fresh config gets. */
-export const DEFAULT_UPSCALE_MODEL_ID = NEAREST_NEIGHBOUR_MODEL.id;
+/**
+ * Default model id — what a fresh config gets and what the Convert
+ * panel pre-selects. v0.5 shipped xbrz-4x-snap as the default since
+ * it produces visibly better output than NN at no runtime cost.
+ */
+export const DEFAULT_UPSCALE_MODEL_ID = XBRZ_4X_SNAP_MODEL.id;
 
 /** All registered models, in stable insertion order. */
 export function listUpscaleModels(): UpscaleModel[] {

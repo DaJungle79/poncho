@@ -26,6 +26,7 @@ import {
 } from '../../../../convert/ines-to-poncho-ai';
 import {
   createUpscaleClient,
+  DEFAULT_UPSCALE_MODEL_ID,
   type UpscaleModelConfig,
   type UpscaleModelContext,
 } from '../../../../convert/upscale-registry';
@@ -317,7 +318,7 @@ export class ConvertPanel implements Panel {
       modalLabel = `Custom: ${this.attachedModel.name}`;
     } else {
       const modelConfig: UpscaleModelConfig = {};
-      const resolved = createUpscaleClient('nearest-neighbour', 'rom-bake', modelConfig, ctx);
+      const resolved = createUpscaleClient(DEFAULT_UPSCALE_MODEL_ID, 'rom-bake', modelConfig, ctx);
       client = resolved.client;
       modalLabel = resolved.model.label;
     }

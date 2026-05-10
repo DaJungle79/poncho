@@ -11,9 +11,16 @@ import {
 } from '../../src/convert/upscale-registry';
 
 describe('UpscaleModel registry', () => {
-  it('exposes nearest-neighbour as the default fallback', () => {
-    expect(DEFAULT_UPSCALE_MODEL_ID).toBe(NEAREST_NEIGHBOUR_MODEL.id);
+  it('exposes nearest-neighbour as the deterministic floor + cacheModelId is canonical', () => {
+    // Since v0.5 the default flipped to xbrz-4x-snap (deterministic
+    // pixel-art-aware scaler with extended-palette snap-back). NN
+    // remains as the explicit "no smoothing" floor.
+    expect(NEAREST_NEIGHBOUR_MODEL.id).toBe('nearest-neighbour');
     expect(NEAREST_NEIGHBOUR_MODEL.cacheModelId).toBe(AI_CACHE_MODEL_NEAREST_NEIGHBOUR);
+  });
+
+  it('default model is xbrz-4x-snap (v0.5)', () => {
+    expect(DEFAULT_UPSCALE_MODEL_ID).toBe('xbrz-4x-snap');
   });
 
   it('lists at least the nearest-neighbour model', () => {
