@@ -9,7 +9,7 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [0.4.0] — 2026-05-10
 
-v0.4.0 — AI-driven CHR upscaling for Poncho-NES carts. Originally targeted Google's nanobanana / Gemini 2.5 Flash Image cloud API; pivoted to local ONNX models (Phase 4.7) and ultimately to a UI-stripped "attach your own model" path after the Phase 5a candidate models (Real-ESRGAN, AnimeSharp, SPAN-x4) all failed quality / runtime / export bars on pixel-art primer. The infrastructure that survived (PonchoROM AI cache section, runtime upscale worker, PpuUltra resolver hook, repack/write-back, model registry, `OnnxUpscaleClient`, browser model-asset cache, Node CLI bake) is what Phase 5b/5c will build the next-generation pixel-art-trained model on top of. See [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md). Game-by-game validation + regression harness moved to [`docs/v0.5.0-plan.md`](docs/v0.5.0-plan.md).
+v0.4.0 — AI-driven CHR upscaling for Poncho-NES carts. Originally targeted Google's nanobanana / Gemini 2.5 Flash Image cloud API; pivoted to local ONNX models (Phase 4.7) and ultimately to a UI-stripped "attach your own model" path after the Phase 5a candidate models (Real-ESRGAN, AnimeSharp, SPAN-x4) all failed quality / runtime / export bars on pixel-art primer. The infrastructure that survived (PonchoROM AI cache section, runtime upscale worker, PpuUltra resolver hook, repack/write-back, model registry, `OnnxUpscaleClient`, browser model-asset cache, Node CLI bake) is what Phase 5b/5c will build the next-generation pixel-art-trained model on top of. See [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md). Game-by-game validation + regression harness moved to [`docs/v0.6.0-plan.md`](docs/v0.6.0-plan.md).
 
 ### Added — v0.4 Phase 1: foundation
 
