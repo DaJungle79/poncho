@@ -1,22 +1,21 @@
 /**
  * Convert .nes → .poncho L3 panel.
  *
- * Replaces the inline "Use AI upscale" checkbox + auto-fired file
- * picker that used to live in `RomsPanel`. Conversion is now an
- * explicit slide-out workflow:
+ * Workflow:
+ *   1. Click "Choose .nes file" → platform file picker.
+ *   2. The "Upscale" checkbox is on by default. With it on the panel
+ *      runs the AI bake-now pipeline; with it off the conversion is a
+ *      plain verbatim wrap.
+ *   3. (Optional) attach a custom `.onnx` model. Without one, upscale
+ *      uses the deterministic 4× nearest-neighbour fallback.
+ *   4. Click "Convert" → run the bake (with the progress modal),
+ *      save into the ROM library, dismiss the panel.
  *
- *   1. Click "Choose .nes file" → platform file picker
- *   2. (Optional) tick "Use AI upscale"
- *   3. (When checkbox is on) pick a bake-now model + a runtime model
- *      from the registry
- *   4. Click "Convert" → run the bake (with the same progress modal
- *      RomsPanel used to show), save into the ROM library
- *
- * The model selectors are intentionally NOT in Settings any more —
- * each conversion is its own decision. We persist the last-used model
- * ids in `config.ai` so the dropdowns boot to the user's previous
- * pick, but the choice belongs to the conversion, not to a global
- * preference.
+ * The shipped registry only exposes `nearest-neighbour`; the previous
+ * ESRGAN/AnimeSharp/SPAN entries were dropped after their quality on
+ * pixel-art primer didn't justify the runtime cost. The
+ * "Attach custom model…" affordance keeps the path open for users who
+ * want to drop in their own ONNX export.
  */
 
 import { ConvertError, convertInesToPoncho } from '../../../../convert/ines-to-poncho';
@@ -27,10 +26,15 @@ import {
 } from '../../../../convert/ines-to-poncho-ai';
 import {
   createUpscaleClient,
-  listUpscaleModels,
   type UpscaleModelConfig,
   type UpscaleModelContext,
 } from '../../../../convert/upscale-registry';
+import {
+  OnnxUpscaleClient,
+  type OnnxUpscaleClientConfig,
+} from '../../../../convert/clients/onnx-upscale-client';
+import { AI_CACHE_MODEL_UNSPECIFIED } from '../../../../core/cart-poncho/ai-cache';
+import type { UpscaleClient } from '../../../../convert/upscale-client';
 import type { ConfigStore } from '../../../../config/store';
 import type { LoadedRom } from '../../../../domain/rom';
 import type { FilePicker, RomLibrary } from '../../../../platform/types';
@@ -60,14 +64,18 @@ export class ConvertPanel implements Panel {
   private readonly fileButton: HTMLButtonElement;
   private readonly fileLabel: HTMLElement;
   private readonly aiCheckbox: HTMLInputElement;
-  private readonly aiSelectorsEl: HTMLElement;
-  private readonly bakeSelect: HTMLSelectElement;
-  private readonly runtimeSelect: HTMLSelectElement;
+  private readonly aiOptionsEl: HTMLElement;
+  private readonly attachBtn: HTMLButtonElement;
+  private readonly attachedRow: HTMLElement;
+  private readonly attachedNameEl: HTMLElement;
+  private readonly detachBtn: HTMLButtonElement;
   private readonly convertBtn: HTMLButtonElement;
   private readonly statusEl: HTMLElement;
 
   /** File picked but not yet converted. Cleared on submit / cancel. */
   private picked: LoadedRom | null = null;
+  /** User-attached custom ONNX model (bytes + display name). Optional. */
+  private attachedModel: { name: string; bytes: Uint8Array } | null = null;
 
   constructor(private readonly deps: ConvertPanelDeps) {
     this.root = document.createElement('section');
@@ -78,41 +86,26 @@ export class ConvertPanel implements Panel {
         <h2>Convert .nes</h2>
       </header>
       <div class="panel-body">
-        <p class="panel-hint">
-          Wrap a Nintendo Entertainment System file as a Poncho-NES
-          cartridge. The original PRG runs unchanged; CHR is rendered
-          through the Ultra PPU at 1024×960. Optionally pre-bake AI
-          upscaled tiles or pick a model that runs lazily during play.
-        </p>
-
         <button type="button" class="file-button" data-pick>
           <i data-lucide="folder-open"></i>
           <span data-pick-label>Choose .nes file…</span>
         </button>
 
         <label class="rom-ai-toggle convert-ai-toggle">
-          <input type="checkbox" data-ai-checkbox>
-          <span>Use AI upscale</span>
+          <input type="checkbox" data-ai-checkbox checked>
+          <span>Upscale</span>
         </label>
 
-        <div class="convert-ai-selectors" data-ai-selectors hidden>
-          <label class="settings-row settings-row-stack">
-            <span>Bake-now model (CHR-ROM)</span>
-            <select data-bake-model></select>
-          </label>
-          <label class="settings-row settings-row-stack">
-            <span>Runtime model (CHR-RAM)</span>
-            <select data-runtime-model></select>
-          </label>
-          <p class="settings-hint">
-            <strong>Bake-now</strong> upscales every unique tile during
-            this conversion (CHR-ROM games only) and embeds the
-            results.
-            <strong>Runtime</strong> upscales tiles in the background
-            during play (CHR-RAM games), persisting back into the
-            <code>.poncho</code> across sessions. CHR-ROM games ignore
-            the runtime selection; CHR-RAM games ignore the bake-now
-            selection.
+        <div class="convert-ai-options" data-ai-options>
+          <button type="button" class="file-button file-button-compact" data-attach-model>
+            <i data-lucide="paperclip"></i>
+            <span>Attach custom model (.onnx)</span>
+          </button>
+          <p class="convert-attached-row" data-attached-model hidden>
+            <span data-attached-name></span>
+            <button type="button" class="rom-item-del" data-detach-model title="Detach">
+              <i data-lucide="x"></i>
+            </button>
           </p>
         </div>
 
@@ -128,63 +121,58 @@ export class ConvertPanel implements Panel {
     this.fileButton = this.root.querySelector<HTMLButtonElement>('[data-pick]')!;
     this.fileLabel = this.root.querySelector<HTMLElement>('[data-pick-label]')!;
     this.aiCheckbox = this.root.querySelector<HTMLInputElement>('[data-ai-checkbox]')!;
-    this.aiSelectorsEl = this.root.querySelector<HTMLElement>('[data-ai-selectors]')!;
-    this.bakeSelect = this.root.querySelector<HTMLSelectElement>('[data-bake-model]')!;
-    this.runtimeSelect = this.root.querySelector<HTMLSelectElement>('[data-runtime-model]')!;
+    this.aiOptionsEl = this.root.querySelector<HTMLElement>('[data-ai-options]')!;
+    this.attachBtn = this.root.querySelector<HTMLButtonElement>('[data-attach-model]')!;
+    this.attachedRow = this.root.querySelector<HTMLElement>('[data-attached-model]')!;
+    this.attachedNameEl = this.root.querySelector<HTMLElement>('[data-attached-name]')!;
+    this.detachBtn = this.root.querySelector<HTMLButtonElement>('[data-detach-model]')!;
     this.convertBtn = this.root.querySelector<HTMLButtonElement>('[data-convert]')!;
     this.statusEl = this.root.querySelector<HTMLElement>('[data-status]')!;
 
-    this.populateModelSelectors();
     this.bindEvents();
+    this.syncAiOptions();
   }
 
   onShow(): void {
     mountLucideIcons();
-    // Boot the dropdowns to the user's last-used picks (kept in config).
-    const cfg = this.deps.config.get();
-    if (this.aiCheckbox.checked) {
-      this.bakeSelect.value = cfg.ai.romModelId;
-      this.runtimeSelect.value = cfg.ai.ramModelId;
-    }
     this.refreshSubmit();
-  }
-
-  // ----- Model selectors ----------------------------------------------------
-
-  private populateModelSelectors(): void {
-    const models = listUpscaleModels();
-    for (const sel of [this.bakeSelect, this.runtimeSelect]) {
-      sel.innerHTML = '';
-      const workflow = sel === this.bakeSelect ? 'rom-bake' : 'ram-runtime';
-      for (const m of models) {
-        const opt = document.createElement('option');
-        opt.value = m.id;
-        opt.textContent = m.label;
-        opt.disabled = !m.supportedWorkflows.includes(workflow);
-        sel.appendChild(opt);
-      }
-    }
-    const cfg = this.deps.config.get();
-    this.bakeSelect.value = cfg.ai.romModelId;
-    this.runtimeSelect.value = cfg.ai.ramModelId;
+    this.syncAiOptions();
   }
 
   // ----- Wiring -------------------------------------------------------------
 
   private bindEvents(): void {
     this.fileButton.addEventListener('click', () => { void this.handlePickFile(); });
-    this.aiCheckbox.addEventListener('change', () => {
-      this.aiSelectorsEl.hidden = !this.aiCheckbox.checked;
-    });
-    this.bakeSelect.addEventListener('change', () => {
-      const id = this.bakeSelect.value;
-      this.deps.config.update((c) => ({ ...c, ai: { ...c.ai, romModelId: id } }));
-    });
-    this.runtimeSelect.addEventListener('change', () => {
-      const id = this.runtimeSelect.value;
-      this.deps.config.update((c) => ({ ...c, ai: { ...c.ai, ramModelId: id } }));
-    });
+    this.aiCheckbox.addEventListener('change', () => this.syncAiOptions());
+    this.attachBtn.addEventListener('click', () => { void this.handleAttachModel(); });
+    this.detachBtn.addEventListener('click', () => this.detachModel());
     this.convertBtn.addEventListener('click', () => { void this.handleSubmit(); });
+  }
+
+  private syncAiOptions(): void {
+    this.aiOptionsEl.hidden = !this.aiCheckbox.checked;
+  }
+
+  private async handleAttachModel(): Promise<void> {
+    let picked: LoadedRom | null;
+    try {
+      picked = await this.deps.filePicker.pick({ accept: ['.onnx'] });
+    } catch (err) {
+      this.setStatus(`Failed: ${(err as Error).message}`);
+      return;
+    }
+    if (!picked) return;
+    this.attachedModel = { name: picked.name, bytes: picked.data };
+    this.attachedNameEl.textContent = `${picked.name} (${formatSize(picked.data.length)})`;
+    this.attachedRow.hidden = false;
+    mountLucideIcons();
+    this.setStatus(`Attached ${picked.name}.`);
+  }
+
+  private detachModel(): void {
+    this.attachedModel = null;
+    this.attachedRow.hidden = true;
+    this.setStatus('Detached custom model.');
   }
 
   private async handlePickFile(): Promise<void> {
@@ -233,15 +221,13 @@ export class ConvertPanel implements Panel {
     let summary: string;
     try {
       if (useAi && isChrRam) {
-        // CHR-RAM games can't be baked at conversion time; they take the
-        // runtime path. The runtime model id has been written to config
-        // by the change handler above; `App.maybeStartAiWorker` reads
-        // it on cart load.
+        // CHR-RAM tiles aren't known at conversion time — they're
+        // generated by PRG at runtime, so bake-now has nothing to
+        // process. Wrap verbatim; the runtime worker can fill the AI
+        // cache lazily during play (currently NN-only).
         const result = convertInesToPoncho(picked.data, { title: baseTitle });
         resultPoncho = result.poncho;
-        summary =
-          `CHR-RAM ${result.notes.chrRamKb} KB; ` +
-          `runtime AI: ${this.runtimeSelect.value}`;
+        summary = `CHR-RAM ${result.notes.chrRamKb} KB (runtime upscale fills lazily)`;
       } else if (useAi) {
         const aiResult = await this.runAiConvert(picked.data, baseTitle);
         if (!aiResult) {
@@ -291,32 +277,51 @@ export class ConvertPanel implements Panel {
   private resetForm(): void {
     this.picked = null;
     this.fileLabel.textContent = 'Choose .nes file…';
-    this.aiCheckbox.checked = false;
-    this.aiSelectorsEl.hidden = true;
+    this.aiCheckbox.checked = true;
+    this.syncAiOptions();
     this.refreshSubmit();
   }
 
   /**
-   * Runs the AI bake-now pipeline behind a modal progress dialog (the
-   * same UX RomsPanel used to own). Returns null when the user
-   * cancelled — but per `convertInesToPonchoAi`'s "save partial on
-   * cancel" semantics, the modal returns a partial result rather than
-   * throwing, so this `null` only fires on hard errors.
+   * Runs the AI bake-now pipeline behind a modal progress dialog.
+   *
+   * Without an attached custom model, falls through to the registry's
+   * default — currently `nearest-neighbour`. With one attached, builds
+   * an `OnnxUpscaleClient` over the user-supplied bytes assuming the
+   * standard 8×8 → 32×32 NCHW RGB [0..1] fp32 contract (matches the
+   * usual pixel-art SR exports). Mismatched models will throw inside
+   * `OnnxUpscaleClient`'s preflight; the surrounding try/catch in
+   * `handleSubmit` surfaces that to the status line.
+   *
+   * Returns null only on user-cancel hard errors; cancelled bakes that
+   * preserved partial results return a result with `notes.cancelled`.
    */
   private async runAiConvert(
     inesBytes: Uint8Array,
     baseTitle: string,
   ): Promise<Awaited<ReturnType<typeof convertInesToPonchoAi>> | null> {
-    const modelId = this.bakeSelect.value;
-    const modelConfig = this.deps.getModelConfig(modelId);
-    const ctx = this.deps.getUpscaleContext();
-    const { client, model, usedFallback } = createUpscaleClient(modelId, 'rom-bake', modelConfig, ctx);
-
-    const modalLabel = usedFallback
-      ? `${model.label} (fallback — "${modelId}" unavailable)`
-      : model.label;
-    const modal = createAiProgressModal(modalLabel);
+    const modal = createAiProgressModal('…resolving model…');
     document.body.appendChild(modal.root);
+
+    const baseCtx = this.deps.getUpscaleContext();
+    const ctx: UpscaleModelContext = {
+      ...(baseCtx ?? {}),
+      onModelLoadProgress: (p) => modal.setLoadingModel(p),
+      onSessionPhase: (phase) => modal.setSessionPhase(phase),
+    };
+
+    let client: UpscaleClient;
+    let modalLabel: string;
+    if (this.attachedModel) {
+      client = this.buildAttachedOnnxClient(this.attachedModel.bytes);
+      modalLabel = `Custom: ${this.attachedModel.name}`;
+    } else {
+      const modelConfig: UpscaleModelConfig = {};
+      const resolved = createUpscaleClient('nearest-neighbour', 'rom-bake', modelConfig, ctx);
+      client = resolved.client;
+      modalLabel = resolved.model.label;
+    }
+    modal.setModelLabel(modalLabel);
 
     const ctrl = new AbortController();
     modal.onCancel(() => ctrl.abort());
@@ -337,6 +342,34 @@ export class ConvertPanel implements Panel {
       modal.root.remove();
     }
   }
+
+  /**
+   * Build an `OnnxUpscaleClient` that loads the user-attached bytes
+   * directly. The I/O contract assumed here matches typical pixel-art
+   * 4× SR ONNX exports (SPAN, ESRGAN-light, etc.):
+   *   - input  : 8×8 fp32 NCHW RGB in [0..1], pin name `input`
+   *   - output : 32×32 fp32 NCHW RGB in [0..1], pin name `output`
+   *
+   * If a user supplies a model with different shape/precision, the
+   * preflight will throw and the convert error will bubble to the
+   * status line. (Configuring those is a future feature.)
+   */
+  private buildAttachedOnnxClient(bytes: Uint8Array): UpscaleClient {
+    const cfg: OnnxUpscaleClientConfig = {
+      modelId: AI_CACHE_MODEL_UNSPECIFIED,
+      modelUrl: 'attached://custom.onnx',
+      executionProviders: ['webgpu', 'wasm'],
+      input: { size: 8, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]', pinName: 'input' },
+      output: { size: 32, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]', pinName: 'output' },
+    };
+    // Copy into a fresh ArrayBuffer to satisfy the loader's return
+    // type (`SharedArrayBuffer.slice` widens the union otherwise).
+    const buf = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(buf).set(bytes);
+    return new OnnxUpscaleClient(cfg, {
+      modelLoader: async () => buf,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -346,6 +379,9 @@ export class ConvertPanel implements Panel {
 function createAiProgressModal(modelLabel: string): {
   root: HTMLElement;
   update(p: AiConvertProgress): void;
+  setLoadingModel(p: { loaded: number; total: number | null; fromCache: boolean }): void;
+  setSessionPhase(phase: 'compiling' | 'ready'): void;
+  setModelLabel(label: string): void;
   complete(): void;
   onCancel(fn: () => void): void;
 } {
@@ -356,12 +392,13 @@ function createAiProgressModal(modelLabel: string): {
       <h3>AI upscale in progress</h3>
       <p class="ai-progress-model">Model: <span data-model></span></p>
       <div class="ai-progress-bar"><div class="ai-progress-fill" data-fill></div></div>
-      <p class="ai-progress-count" data-count>0 / 0 tiles</p>
+      <p class="ai-progress-count" data-count>preparing…</p>
       <p class="ai-progress-eta" data-eta>elapsed —, eta —</p>
       <button type="button" class="ai-progress-cancel" data-cancel>Cancel</button>
     </div>
   `;
-  root.querySelector<HTMLSpanElement>('[data-model]')!.textContent = modelLabel;
+  const modelEl = root.querySelector<HTMLSpanElement>('[data-model]')!;
+  modelEl.textContent = modelLabel;
   const fill = root.querySelector<HTMLElement>('[data-fill]')!;
   const count = root.querySelector<HTMLElement>('[data-count]')!;
   const eta = root.querySelector<HTMLElement>('[data-eta]')!;
@@ -370,10 +407,42 @@ function createAiProgressModal(modelLabel: string): {
   cancel.addEventListener('click', () => cancelHandler?.());
 
   const startedAt = performance.now();
+  let inferenceStarted = false;
 
   return {
     root,
+    setModelLabel(label) {
+      modelEl.textContent = label;
+    },
+    setLoadingModel(p) {
+      // Once tile-inference progress arrives, ignore late model-load
+      // events (cache reads can fire after the first tile completes).
+      if (inferenceStarted) return;
+      const pct = p.total && p.total > 0 ? Math.floor((p.loaded / p.total) * 100) : 0;
+      fill.style.width = `${pct}%`;
+      const loadedMb = (p.loaded / (1024 * 1024)).toFixed(1);
+      const totalMb = p.total ? (p.total / (1024 * 1024)).toFixed(1) : '?';
+      count.textContent = p.fromCache
+        ? `Loading model from cache (${loadedMb} MB)…`
+        : `Downloading model: ${loadedMb} / ${totalMb} MB`;
+      const elapsed = formatDuration(performance.now() - startedAt);
+      eta.textContent = `elapsed ${elapsed}`;
+    },
+    setSessionPhase(phase) {
+      if (inferenceStarted) return;
+      if (phase === 'compiling') {
+        // No determinate progress for shader compile / protobuf parse.
+        // Keep the bar at 100% (download done) and show an animated /
+        // textual hint that the bake is still alive.
+        fill.style.width = '100%';
+        count.textContent = 'Compiling model and warming up GPU… (10-30 s)';
+        eta.textContent = `elapsed ${formatDuration(performance.now() - startedAt)}`;
+      } else {
+        count.textContent = 'Model ready — starting tile inference…';
+      }
+    },
     update(p) {
+      inferenceStarted = true;
       const pct = p.total === 0 ? 100 : Math.floor((p.done / p.total) * 100);
       fill.style.width = `${pct}%`;
       count.textContent = `${p.done} / ${p.total} tiles · ${p.cached} cached · ${p.failed} fallbacks`;

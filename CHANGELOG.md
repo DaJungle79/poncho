@@ -7,7 +7,9 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
-In progress — v0.4.0 (AI-driven CHR upscaling via nanobanana / Gemini 2.5 Flash Image). See [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md). Game-by-game validation + regression harness moved to [`docs/v0.5.0-plan.md`](docs/v0.5.0-plan.md).
+## [0.4.0] — 2026-05-10
+
+v0.4.0 — AI-driven CHR upscaling for Poncho-NES carts. Originally targeted Google's nanobanana / Gemini 2.5 Flash Image cloud API; pivoted to local ONNX models (Phase 4.7) and ultimately to a UI-stripped "attach your own model" path after the Phase 5a candidate models (Real-ESRGAN, AnimeSharp, SPAN-x4) all failed quality / runtime / export bars on pixel-art primer. The infrastructure that survived (PonchoROM AI cache section, runtime upscale worker, PpuUltra resolver hook, repack/write-back, model registry, `OnnxUpscaleClient`, browser model-asset cache, Node CLI bake) is what Phase 5b/5c will build the next-generation pixel-art-trained model on top of. See [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md). Game-by-game validation + regression harness moved to [`docs/v0.5.0-plan.md`](docs/v0.5.0-plan.md).
 
 ### Added — v0.4 Phase 1: foundation
 
@@ -122,10 +124,10 @@ without any format change to `.poncho`.
   legacy `pv 0..3` slots match the old behaviour exactly. Total now
   453 tests pass / 1 skipped (was 443).
 
-### Added — v0.4 Phase 5a: ONNX runtime + Real-ESRGAN x4 Anime (first local model)
+### Added — v0.4 Phase 5a: ONNX runtime + Real-ESRGAN-x4plus (first local model)
 
 - **`OnnxUpscaleClient`** ([`src/convert/clients/onnx-upscale-client.ts`](src/convert/clients/onnx-upscale-client.ts)) — generic ONNX-runtime-backed `UpscaleClient`. Lazy dynamic import of `onnxruntime-web` (heavy WASM bundle stays out of the main bundle until the user picks the model). Per-tile pipeline: `renderPrimer` → preprocess to NCHW/NHWC tensor in [0..1] or [-1..1] → `session.run` → postprocess → `snapToExtendedPalette` (Phase 4.6 helper). Test seam: `OrtFacade` interface + `ortFactory` / `modelLoader` hooks.
-- **Real-ESRGAN x4 Anime** registered in `upscale-registry.ts`. Hard-coded I/O shape (8×8 → 32×32, NCHW, RGB, [0..1]) matches the standard export. `cacheModelId = 1`.
+- **Real-ESRGAN-x4plus** registered in `upscale-registry.ts`. Hard-coded I/O shape (8×8 → 32×32, NCHW, RGB, [0..1]) matches the standard export. `cacheModelId = 1`.
 - **Browser model-asset cache** ([`src/platform/web/model-asset-cache.ts`](src/platform/web/model-asset-cache.ts)) — `WebModelAssetCache` implements the new `ModelAssetCache` Platform interface using the browser Cache Storage API. Persistent across reloads; progress events for the Settings UI bar; sidecar JSON entries for size + cachedAt metadata. Wired into the registry via `UpscaleModelContext.loadAsset` so ESRGAN weights cache after the first load.
 - **Bundled model files (`npm run setup:models`)** ([`scripts/download-models.ts`](scripts/download-models.ts), [`scripts/models-manifest.json`](scripts/models-manifest.json)) — manifest-driven downloader fetches ONNX weights into `public/models/` (gitignored). Idempotent, verifies optional `expectedSize`/`sha256`, streams with progress. The build serves files at `/models/<filename>.onnx` (Vite's `public/` convention) so prod inherits them via the deploy pipeline.
 - **Settings UI** for the per-model state (under "AI upscale", visible when ESRGAN is selected): "Installed (X MB)" / "Available (Y MB on server). Click Pre-cache to download into the browser cache" / "Model file not installed. Run `npm run setup:models`." Plus Pre-cache / Clear-browser-cache buttons + progress bar. **No URL paste field** — the model file ships with the application.
@@ -139,6 +141,16 @@ The runtime CHR-RAM flow is unchanged from the NanoBanana days — just routed t
 - **New L3 "Convert .nes" panel** ([`src/shells/web/ui/panels/convert-panel.ts`](src/shells/web/ui/panels/convert-panel.ts)) replaces the inline checkbox + auto-fired file picker that lived in `RomsPanel`. Click "Convert .nes" → slide-out with file picker, "Use AI upscale" toggle, and (when AI is on) bake-now + runtime model dropdowns. After a successful save the form resets and L2/L3 dismiss.
 - **Model selection moved out of Settings.** AI is a per-conversion decision, not a global preference; Settings is back to Appearance / Video / Audio / Controls. `config.ai.romModelId`/`ramModelId` are kept as boot-time defaults for the ConvertPanel dropdowns.
 - **`RomsPanel` slimmed down** — no more `handleConvert` / `runAiConvert` / progress modal / AI hint markup. The Convert button now just opens the L3 panel.
+
+### Changed — Convert UI simplified: only NN, attach-your-own model
+
+After Phase 5a's three model candidates (Real-ESRGAN-x4plus, AnimeSharpV4, SPAN-x4-ch48) all failed the quality bar on pixel-art primer — sub-perceptual edges, fp16 binding edge cases, scrambled-tile output respectively — the shipped registry now exposes only the deterministic NN fallback:
+
+- **Convert .nes panel UX**: the "Use AI upscale" checkbox is renamed **Upscale** and is **on by default**. The bake-now / runtime model dropdowns + the long explanatory paragraph are removed. The panel now offers a single **Attach custom model (.onnx)** button so users can drop in their own ONNX export.
+- **Custom-model wiring** assumes the standard pixel-art SR contract (8×8 → 32×32, NCHW, RGB, [0..1] fp32, pin names `input`/`output`). Mismatched models surface a clear preflight error to the status line instead of silently NN-fallbacking every tile.
+- **Registry**: `ESRGAN_X4_PLUS_MODEL` removed from the `MODELS` map. The `ESRGAN_X4_PLUS_MODEL_URL` constant + `OnnxUpscaleClient` exports stay — used by the Node CLI and the new attach-your-own path.
+- **Node CLI** (`npm run poncho:convert`) gained `--model Real-ESRGAN-x4plus` and `--model 4x-spanx4-ch48` flags for offline baking via `onnxruntime-node` (CoreML on macOS at 60 ms / 1.4 ms per tile respectively, CPU fallback). Useful when in-browser inference freezes or you want to validate a model without browser-side dependencies. `onnxruntime-node` joins as a `devDependency`.
+- **Hardening** before the simplification landed: pre-flight session creation in `OnnxUpscaleClient` (`preflight()`) so missing-model failures abort the bake instead of NN-fallbacking 100% of tiles; `onSessionPhase('compiling' | 'ready')` callback drives a "Compiling model and warming up GPU…" status when the bar is at 100% but `InferenceSession.create` is still parsing protobuf; `evictAsset` ctx hook auto-clears poisoned Cache Storage entries on parse failure; `wasmPaths = '/ort/'` set explicitly so Safari's strict URL parser doesn't reject ORT's `import.meta.url`-relative sidecar resolution.
 
 ### Fixed — Poncho-NES: dynamic nametable mirroring now reaches PpuUltra
 

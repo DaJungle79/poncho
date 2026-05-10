@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+  AI_CACHE_MODEL_ESRGAN_X4_PLUS,
 } from '../../src/core/cart-poncho/ai-cache';
 import {
   OnnxUpscaleClient,
@@ -303,7 +303,7 @@ describe('OnnxUpscaleClient — construction', () => {
   it('rejects empty modelUrl at construction time', () => {
     expect(() =>
       new OnnxUpscaleClient({
-        modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+        modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
         modelUrl: '',
         input: { size: 8, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
         output: { size: 32, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
@@ -314,7 +314,7 @@ describe('OnnxUpscaleClient — construction', () => {
   it('rejects output.size < 32 (smaller than Poncho native tile)', () => {
     expect(() =>
       new OnnxUpscaleClient({
-        modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+        modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
         modelUrl: 'https://example.com/m.onnx',
         input: { size: 8, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
         output: { size: 16, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
@@ -325,7 +325,7 @@ describe('OnnxUpscaleClient — construction', () => {
   it('rejects output.size that is not a multiple of 32 (box filter requires integer ratio)', () => {
     expect(() =>
       new OnnxUpscaleClient({
-        modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+        modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
         modelUrl: 'https://example.com/m.onnx',
         input: { size: 8, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
         output: { size: 33, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
@@ -336,7 +336,7 @@ describe('OnnxUpscaleClient — construction', () => {
   it('accepts output.size > 32 multiples (e.g. Real-ESRGAN x4plus 512×512)', () => {
     expect(() =>
       new OnnxUpscaleClient({
-        modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+        modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
         modelUrl: 'https://example.com/m.onnx',
         input: { size: 128, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
         output: { size: 512, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
@@ -353,7 +353,7 @@ describe('OnnxUpscaleClient.upscaleTile — end-to-end with mocked ORT', () => {
 
     const client = new OnnxUpscaleClient(
       {
-        modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+        modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
         modelUrl: 'mock://m.onnx',
         input: { size: 8, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
         output: { size: 32, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
@@ -377,7 +377,7 @@ describe('OnnxUpscaleClient.upscaleTile — end-to-end with mocked ORT', () => {
 
     const client = new OnnxUpscaleClient(
       {
-        modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+        modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
         modelUrl: 'mock://m.onnx',
         input: { size: 8, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
         output: { size: 32, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
@@ -402,7 +402,7 @@ describe('OnnxUpscaleClient.upscaleTile — end-to-end with mocked ORT', () => {
 
     const client = new OnnxUpscaleClient(
       {
-        modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+        modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
         modelUrl: 'mock://m.onnx',
         executionProviders: ['wasm'],
         input: { size: 8, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
@@ -427,7 +427,7 @@ describe('OnnxUpscaleClient.upscaleTile — end-to-end with mocked ORT', () => {
 
     const client = new OnnxUpscaleClient(
       {
-        modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+        modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
         modelUrl: 'mock://m.onnx',
         input: { size: 8, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]', pinName: 'image_in' },
         output: { size: 32, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]', pinName: 'image_out' },
@@ -454,7 +454,7 @@ describe('OnnxUpscaleClient.upscaleTile — end-to-end with mocked ORT', () => {
 
     const client = new OnnxUpscaleClient(
       {
-        modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+        modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
         modelUrl: 'mock://m.onnx',
         input: { size: 8, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
         output: { size: 32, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
@@ -477,7 +477,7 @@ describe('OnnxUpscaleClient.upscaleTile — end-to-end with mocked ORT', () => {
 
     const client = new OnnxUpscaleClient(
       {
-        modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+        modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
         modelUrl: 'mock://m.onnx',
         input: { size: 8, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
         output: { size: 32, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
@@ -517,7 +517,7 @@ describe('OnnxUpscaleClient.upscaleTile — end-to-end with mocked ORT', () => {
 
     const client = new OnnxUpscaleClient(
       {
-        modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+        modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
         modelUrl: 'mock://m.onnx',
         input: { size: 128, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]', pinName: 'image' },
         output: { size: 512, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' /* no pinName — fallback */ },
@@ -548,7 +548,7 @@ describe('OnnxUpscaleClient.upscaleTile — end-to-end with mocked ORT', () => {
 
     const client = new OnnxUpscaleClient(
       {
-        modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+        modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
         modelUrl: 'mock://m.onnx',
         input: { size: 8, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
         output: { size: 32, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
@@ -578,7 +578,7 @@ describe('OnnxUpscaleClient.upscaleTile — end-to-end with mocked ORT', () => {
 
     const client = new OnnxUpscaleClient(
       {
-        modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+        modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
         modelUrl: 'mock://m.onnx',
         input: { size: 8, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },
         output: { size: 32, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]' },

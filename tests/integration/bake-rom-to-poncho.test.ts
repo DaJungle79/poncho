@@ -74,7 +74,7 @@ const FIXTURES: readonly BakeFixture[] = [
   // append an entry here to bake it via this test. The fixture is
   // skipped whenever the source file isn't present.
   {
-    source: 'Bomberman.nes',
+    source: 'Bomberman (USA).nes',
     output: 'bomberman.poncho',
     title: 'Bomberman',
     expectedMapper: 0, // NROM (Hudson Soft 1985)

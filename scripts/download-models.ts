@@ -4,8 +4,8 @@
  * already match the manifest's `expectedSize` / `sha256`.
  *
  * Vite serves anything in `public/` at the root, so a model at
- * `public/models/realesrgan-x4-anime.onnx` is reachable at
- * `/models/realesrgan-x4-anime.onnx` in dev + prod. The registry's
+ * `public/models/Real-ESRGAN-x4plus.onnx` is reachable at
+ * `/models/Real-ESRGAN-x4plus.onnx` in dev + prod. The registry's
  * ESRGAN factory hardcodes that path, so the user doesn't have to
  * paste URLs.
  *

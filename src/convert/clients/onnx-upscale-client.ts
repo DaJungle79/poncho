@@ -1,7 +1,7 @@
 /**
  * ONNX-runtime-backed upscale client. Generic enough to drive any
  * image-to-image model whose input/output shapes can be described by
- * a small config — Real-ESRGAN x4 Anime is the first registered user
+ * a small config — Real-ESRGAN x4 Plus is the first registered user
  * (Phase 5a of v0.4), but the same class works for any later model
  * we register (pixel-art-aware super-res, custom-trained tile
  * networks, etc.) by changing the config blob.
@@ -48,6 +48,11 @@ export interface OnnxModelInputSpec {
   channelOrder: 'rgb' | 'bgr';
   /** Numeric range expected by the model — `[0..1]` is most common. */
   range: '[0..1]' | '[-1..1]';
+  /**
+   * Element type of the input tensor. Most exports are float32; some
+   * pixel-art / anime models ship fp16 quantised. Default 'float32'.
+   */
+  precision?: 'float32' | 'float16';
   /** Pin name in the ONNX graph. Default: `input`. Overridden per model. */
   pinName?: string;
 }
@@ -66,6 +71,8 @@ export interface OnnxModelOutputSpec {
   layout: 'nchw' | 'nhwc';
   channelOrder: 'rgb' | 'bgr';
   range: '[0..1]' | '[-1..1]';
+  /** Element type of the output tensor. Default 'float32'. */
+  precision?: 'float32' | 'float16';
   /** Pin name in the ONNX graph. Default: `output`. */
   pinName?: string;
 }
@@ -89,8 +96,8 @@ export interface OnnxUpscaleClientConfig {
  */
 export interface OrtFacade {
   Tensor: new (
-    type: 'float32',
-    data: Float32Array,
+    type: 'float32' | 'float16',
+    data: Float32Array | Uint16Array,
     dims: readonly number[],
   ) => OrtTensor;
   InferenceSession: {
@@ -117,7 +124,7 @@ export interface OrtFacade {
 
 export interface OrtTensor {
   readonly type: string;
-  readonly data: Float32Array;
+  readonly data: Float32Array | Uint16Array;
   readonly dims: readonly number[];
 }
 
@@ -148,6 +155,22 @@ export interface OnnxUpscaleClientHooks {
   ) => Promise<ArrayBuffer>;
   /** Optional progress sink — fired during `ensureSession` first load. */
   onModelLoadProgress?: (p: ModelLoadProgress) => void;
+  /**
+   * Phase callback for the *non-progress* parts of preflight — protobuf
+   * parse + WebGPU shader compile happen synchronously inside
+   * `InferenceSession.create` and can take 10-30 s on a 64 MB model
+   * with no events to drive a UI. Hooking this lets the modal swap
+   * its status from "Downloading…" to "Compiling…" so the user sees
+   * the bake hasn't frozen.
+   */
+  onSessionPhase?: (phase: 'compiling' | 'ready') => void;
+  /**
+   * Evict a cached entry when the loaded bytes fail to parse — the
+   * next attempt re-fetches fresh. Without this, a stale Cache Storage
+   * entry (from a prior bad fetch / SPA-fallback HTML / aborted
+   * download) locks the user into a permanent ORT parse error.
+   */
+  evictModel?: (url: string) => Promise<void>;
 }
 
 export class OnnxUpscaleClient implements UpscaleClient {
@@ -173,6 +196,16 @@ export class OnnxUpscaleClient implements UpscaleClient {
     this.modelId = cfg.modelId;
     this.cfg = cfg;
     this.hooks = hooks;
+  }
+
+  /**
+   * Pre-flight: load weights + create the ORT session. Bake-now calls
+   * this once before the tile loop so a 404 / WASM init failure / model
+   * shape mismatch surfaces as a single hard error instead of
+   * NN-fallbacking every tile.
+   */
+  async preflight(): Promise<void> {
+    await this.ensureSession();
   }
 
   async upscaleTile(nesTile: Uint8Array, subPalette: Uint8Array): Promise<Uint8Array> {
@@ -253,13 +286,18 @@ export class OnnxUpscaleClient implements UpscaleClient {
         const ort = await factory();
         this.ort = ort;
 
-        // ORT resolves its `.wasm` + JSEP `.mjs` sidecars via
-        // `import.meta.url` relative to its own bundle. Vite's
-        // `optimizeDeps.exclude: ['onnxruntime-web']` (set in
-        // `vite.config.ts`) keeps ORT loaded as-is from node_modules
-        // in dev so this resolution works; in production Vite's asset
-        // bundler hashes the WASM into `dist/assets/`. No explicit
-        // `wasmPaths` override needed in either mode.
+        // Force WASM sidecar resolution to a stable HTTP URL. Without
+        // this, ORT's default `import.meta.url`-relative resolution
+        // produces URLs that work in Chrome but Safari rejects with
+        // "Request url is not HTTP/HTTPS" (its URL parser is stricter
+        // about non-HTTP protocols and sometimes blob:/module: URLs
+        // reaching the WebAssembly compiler). The Vite middleware in
+        // `vite.config.ts` (dev) and the `setup:ort` copy into
+        // `public/ort/` (prod) both serve files at `/ort/<file>.wasm`.
+        if (ort.env?.wasm) {
+          // Use absolute path-rooted URL so it works under any base.
+          ort.env.wasm.wasmPaths = '/ort/';
+        }
 
         const providers = this.cfg.executionProviders ?? ['webgpu', 'wasm'];
 
@@ -268,21 +306,45 @@ export class OnnxUpscaleClient implements UpscaleClient {
           const bytes = await this.hooks.modelLoader(this.cfg.modelUrl, {
             ...(this.hooks.onModelLoadProgress ? { onProgress: this.hooks.onModelLoadProgress } : {}),
           });
+          // Yield to the event loop so the modal can paint
+          // "Downloading 64 / 64 MB" → "Compiling…" before
+          // `InferenceSession.create` blocks the main thread on the
+          // protobuf parse + shader compile.
+          this.hooks.onSessionPhase?.('compiling');
+          await new Promise<void>((r) => setTimeout(r, 0));
           session = await ort.InferenceSession.create(
             new Uint8Array(bytes),
             { executionProviders: providers },
           );
         } else {
+          this.hooks.onSessionPhase?.('compiling');
+          await new Promise<void>((r) => setTimeout(r, 0));
           session = await ort.InferenceSession.create(
             this.cfg.modelUrl,
             { executionProviders: providers },
           );
         }
+        this.hooks.onSessionPhase?.('ready');
         this.session = session;
         return session;
-      })().catch((err) => {
+      })().catch(async (err) => {
         // Don't pin the failure — let the next call retry.
         this.sessionLoad = null;
+        // Best-effort: evict a cached entry if the failure smells like
+        // a stale/corrupt body (ORT protobuf parse failures look like
+        // "Failed to load model because protobuf parsing failed" or
+        // similar). The next preflight will re-fetch fresh.
+        const msg = String((err as Error).message ?? err).toLowerCase();
+        const looksCorrupt = msg.includes('protobuf')
+          || msg.includes('failed to load model')
+          || msg.includes('parse');
+        if (looksCorrupt && this.hooks.evictModel) {
+          try {
+            await this.hooks.evictModel(this.cfg.modelUrl);
+          } catch {
+            // Eviction is best-effort.
+          }
+        }
         throw new UpscaleError(
           `OnnxUpscaleClient: failed to load model from '${this.cfg.modelUrl}' — ${(err as Error).message ?? String(err)}`,
         );
@@ -353,7 +415,7 @@ export function renderPrimer(
   return out;
 }
 
-/** RGBA primer (size×size×4) → Float32 tensor with the model's expected shape. */
+/** RGBA primer (size×size×4) → Float32/Float16 tensor with the model's expected shape. */
 export function preprocessTensor(
   primer: Uint8Array,
   spec: OnnxModelInputSpec,
@@ -392,17 +454,23 @@ export function preprocessTensor(
   const dims: readonly number[] = spec.layout === 'nchw'
     ? [1, 3, n, n]
     : [1, n, n, 3];
+  if (spec.precision === 'float16') {
+    const half = new Uint16Array(data.length);
+    for (let i = 0; i < data.length; i++) half[i] = f32ToF16(data[i]!);
+    return new ort.Tensor('float16', half, dims);
+  }
   return new ort.Tensor('float32', data, dims);
 }
 
-/** Output Float32 tensor → 32×32 RGBA buffer ready for snap-back. */
+/** Output Float32/Float16 tensor → 32×32 RGBA buffer ready for snap-back. */
 export function postprocessTensor(
   output: OrtTensor,
   spec: OnnxModelOutputSpec,
 ): Uint8Array {
-  if (output.type !== 'float32') {
+  const expectedType = spec.precision === 'float16' ? 'float16' : 'float32';
+  if (output.type !== expectedType) {
     throw new UpscaleError(
-      `postprocessTensor: expected float32 output tensor, got '${output.type}'`,
+      `postprocessTensor: expected ${expectedType} output tensor, got '${output.type}'`,
     );
   }
   const n = spec.size;
@@ -412,6 +480,11 @@ export function postprocessTensor(
       `postprocessTensor: tensor length ${output.data.length} ≠ expected ${expectedLen} for ${spec.layout} ${n}×${n}×3`,
     );
   }
+
+  // Read into a Float32 view regardless of the tensor's wire precision.
+  const f32: Float32Array = output.type === 'float16'
+    ? f16BufferToF32(output.data as Uint16Array)
+    : (output.data as Float32Array);
 
   const denorm = spec.range === '[0..1]'
     ? (v: number) => v * 255
@@ -423,13 +496,13 @@ export function postprocessTensor(
     for (let x = 0; x < n; x++) {
       let r: number, g: number, b: number;
       if (spec.layout === 'nchw') {
-        r = denorm(output.data[0 * n * n + y * n + x]!);
-        g = denorm(output.data[1 * n * n + y * n + x]!);
-        b = denorm(output.data[2 * n * n + y * n + x]!);
+        r = denorm(f32[0 * n * n + y * n + x]!);
+        g = denorm(f32[1 * n * n + y * n + x]!);
+        b = denorm(f32[2 * n * n + y * n + x]!);
       } else {
-        r = denorm(output.data[(y * n + x) * 3 + 0]!);
-        g = denorm(output.data[(y * n + x) * 3 + 1]!);
-        b = denorm(output.data[(y * n + x) * 3 + 2]!);
+        r = denorm(f32[(y * n + x) * 3 + 0]!);
+        g = denorm(f32[(y * n + x) * 3 + 1]!);
+        b = denorm(f32[(y * n + x) * 3 + 2]!);
       }
       if (swapBgr) { const t = r; r = b; b = t; }
       const dst = (y * n + x) * 4;
@@ -440,6 +513,45 @@ export function postprocessTensor(
     }
   }
   return rgba;
+}
+
+// IEEE 754 half-float ↔ single-float conversion. Used for fp16 ONNX
+// models — onnxruntime-node's native binding only accepts Uint16Array
+// carriers, so we convert at the seam.
+function f32ToF16(v: number): number {
+  const f32 = new Float32Array(1);
+  const u32 = new Uint32Array(f32.buffer);
+  f32[0] = v;
+  const x = u32[0]!;
+  const sign = (x >>> 16) & 0x8000;
+  let exp = ((x >>> 23) & 0xff) - 112;
+  const mant = x & 0x7fffff;
+  if (exp <= 0) return sign;
+  if (exp >= 31) return sign | 0x7c00;
+  return sign | (exp << 10) | (mant >> 13);
+}
+function f16BufferToF32(half: Uint16Array): Float32Array {
+  const out = new Float32Array(half.length);
+  const f32 = new Float32Array(1);
+  const u32 = new Uint32Array(f32.buffer);
+  for (let i = 0; i < half.length; i++) {
+    const h = half[i]!;
+    const sign = (h & 0x8000) << 16;
+    let exp = (h >> 10) & 0x1f;
+    let mant = h & 0x3ff;
+    if (exp === 0) {
+      if (mant === 0) {
+        u32[0] = sign;
+        out[i] = f32[0]!;
+        continue;
+      }
+      while (!(mant & 0x400)) { mant <<= 1; exp--; }
+      exp++; mant &= 0x3ff;
+    }
+    u32[0] = sign | ((exp + 112) << 23) | (mant << 13);
+    out[i] = f32[0]!;
+  }
+  return out;
 }
 
 function clamp255(v: number): number {

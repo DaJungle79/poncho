@@ -1,90 +1,81 @@
 # AI upscale models — setup
 
-Poncho's Phase 5a AI upscale path runs a local ONNX model (no cloud
-API). Two pieces of setup are needed; **`npm run setup` handles both**:
+Poncho's AI upscale path runs a local ONNX model (no cloud API). The
+shipped UI registers only the deterministic 4× nearest-neighbour
+fallback — ESRGAN, AnimeSharp, and SPAN-x4 were prototyped but didn't
+pass the quality bar on pixel-art primer (see Phase 5a notes in
+[`docs/v0.4.0-plan.md`](v0.4.0-plan.md)). To run a model anyway you
+either:
 
-1. **ONNX Runtime Web** WASM files at `public/ort/*` — served at
-   `/ort/*` so the runtime's loader fetches them from a stable URL
-   instead of from Vite's pre-bundled deps cache (which doesn't
-   ship the .wasm sidecars).
-2. **Model file** at `public/models/<filename>.onnx` — served at
-   `/models/<filename>.onnx`. The Real-ESRGAN export is the first
-   model registered.
+1. **Attach a custom `.onnx` from the Convert .nes panel** (browser).
+2. **Run the Node-side bake CLI** with one of the prototype models
+   (offline, then drag the resulting `.poncho` into the browser).
+
+Neither path requires `npm run setup` — that script is only useful if
+you're shipping a bundled model with the build (no longer the default).
+
+## Path A — Attach a custom `.onnx` in the browser
+
+1. Open the L3 **Convert .nes** panel (cassette icon → "Convert .nes"
+   button on a Poncho-NES cart).
+2. **Upscale** is on by default. Click **Attach custom model
+   (.onnx)** and pick your file.
+3. Click **Convert**.
+
+The wiring assumes the standard pixel-art SR contract:
+
+|               | Input          | Output         |
+|---------------|---------------:|---------------:|
+| Image size    | 8 × 8          | 32 × 32        |
+| Tensor shape  | `[1, 3, 8, 8]` | `[1, 3, 32, 32]` |
+| Layout        | NCHW           | NCHW           |
+| Channel order | RGB            | RGB            |
+| Numeric range | `[0..1]` Float32 | `[0..1]` Float32 |
+| Pin names     | `input`        | `output`       |
+
+A model that mismatches this contract throws a clear preflight error
+to the panel's status line — it won't silently NN-fallback every tile.
+
+`onnxruntime-web`'s WASM sidecars are needed at runtime; if you've run
+`npm run setup` (or `npm run setup:ort`) the dev server serves them
+from `public/ort/`. Otherwise Vite's middleware in `vite.config.ts`
+streams them directly out of `node_modules/onnxruntime-web/dist/`.
+
+## Path B — Node CLI bake
+
+The CLI bakes a `.nes` to a `.poncho` offline, then you drop the
+result into the browser to play. Bypasses every browser-side ORT
+constraint.
 
 ```bash
-npm run setup
-# Equivalent to: npm run setup:ort && npm run setup:models
+# Default (deterministic NN, no model file needed)
+npx tsx scripts/poncho-convert.ts <input.nes> --ai
+
+# With a real model (CoreML on macOS, CPU fallback)
+npx tsx scripts/poncho-convert.ts <input.nes> --model Real-ESRGAN-x4plus
+npx tsx scripts/poncho-convert.ts <input.nes> --model 4x-spanx4-ch48
 ```
 
-After that the Settings UI shows the model as "Installed and ready"
-and the AI upscale path works end-to-end.
+`--model-path <file>` overrides the default file location. Drop the
+`.onnx` (and any `.onnx.data` sidecar for external-data exports) into
+`public/models/`. See `npx tsx scripts/poncho-convert.ts --help` for
+the full flag list.
 
-## Updating the model
+The CLI dependency `onnxruntime-node` is a heavy native binary — kept
+as a `devDependency` so the production browser build doesn't pull it
+in. `npm install` includes it in dev installs.
 
-Edit `scripts/models-manifest.json` to point at a different ONNX
-export (`url` field; `"PLACEHOLDER"` triggers the manual-install
-fallback). Then:
-
-```bash
-npm run setup:models -- --force   # re-download
-```
-
-The script downloads with progress reporting, verifies size + hash
-(when you set them in the manifest), atomic-renames into place.
-
-## Path 2 — drop the file manually
-
-If you can't find a public URL or HF auth is in the way:
-
-1. Find any Real-ESRGAN x4 Anime ONNX export. Sources to try:
-   - [openmodeldb.info](https://openmodeldb.info/) — search "Real-ESRGAN x4 Anime"
-   - Hugging Face — search `realesrgan onnx` (may require login for some)
-   - Convert from a PyTorch checkpoint via [`onnxruntime`](https://onnxruntime.ai/)'s `convert.py` from any of the public Real-ESRGAN forks
-2. Save the file at:
-   ```
-   public/models/realesrgan-x4-anime.onnx
-   ```
-3. Reload the Poncho dev server (or rebuild for production). In
-   **Settings → AI upscale**, picking the model should now show
-   "Available (NN MB on server)".
-
-The download script doesn't care which way you got the file — it
-detects already-installed entries by filename and skips them.
-
-## What the model needs to accept
-
-The bundled `OnnxUpscaleClient` configures the ESRGAN registry entry
-with this contract:
-
-|              | Input | Output |
-|--------------|------:|-------:|
-| Image size   | 8 × 8 | 32 × 32 |
-| Tensor shape | `[1, 3, 8, 8]` | `[1, 3, 32, 32]` |
-| Layout       | NCHW | NCHW |
-| Channel order| RGB | RGB |
-| Numeric range| `[0..1]` Float32 | `[0..1]` Float32 |
-| Pin name     | `input` | `output` |
-
-If your ONNX export uses different pin names, override them via
-`config.ai.modelConfig['esrgan-x4-anime'].inputPinName` /
-`outputPinName` in `localStorage` (key `poncho.nes.config`) — or
-patch the registry entry in
-[`src/convert/upscale-registry.ts`](../src/convert/upscale-registry.ts).
-
-If your model has different I/O dimensions (most generic Real-ESRGAN
-exports take any input size and produce 4× output), the contract
-still works — `OnnxUpscaleClient` only insists `output.size === 32`
-because that's the Poncho native tile size.
-
-## Adding a new model
+## Adding a new model in code
 
 1. Allocate a numeric `cacheModelId` in
-   [`src/core/cart-poncho/ai-cache.ts`](../src/core/cart-poncho/ai-cache.ts).
-2. Append an entry to `scripts/models-manifest.json` with id, filename,
-   URL.
-3. Register an `UpscaleModel` definition in
-   [`src/convert/upscale-registry.ts`](../src/convert/upscale-registry.ts) —
-   reuse `OnnxUpscaleClient` with the model's I/O config, or implement
-   a different `UpscaleClient` if it needs a different runtime.
-4. The Settings dropdowns + per-model UI pick up the new entry
-   automatically.
+   [`src/core/cart-poncho/ai-cache.ts`](../src/core/cart-poncho/ai-cache.ts) —
+   matters when mixing AI caches across models.
+2. Implement `UpscaleClient` (or reuse `OnnxUpscaleClient` with a new
+   I/O config blob).
+3. Register the `UpscaleModel` definition in
+   [`src/convert/upscale-registry.ts`](../src/convert/upscale-registry.ts).
+   Anything in the `MODELS` map appears in the panel automatically.
+
+`scripts/models-manifest.json` and `npm run setup:models` exist for
+the bundled-model workflow if you ever ship a model with the build.
+The shipped Poncho doesn't.

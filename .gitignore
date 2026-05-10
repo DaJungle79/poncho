@@ -7,8 +7,10 @@ tsconfig.tsbuildinfo
 # Scratch outputs from debug scripts / probes (e.g. tests/integration/ai-upscale-*).
 tmp/
 
-# AI upscale model files — fetched by `npm run setup:models` from
-# `scripts/models-manifest.json`. Multi-MB binaries; never committed.
+# AI upscale model files — multi-MB ONNX binaries. Users supply their
+# own via the Convert panel's "Attach custom model" affordance, or
+# drop them in here for the Node CLI bake (`npm run poncho:convert`).
+# Never committed.
 public/models/*
 !public/models/.gitkeep
 

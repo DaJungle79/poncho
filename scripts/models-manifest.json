@@ -3,13 +3,13 @@
   "version": 1,
   "models": [
     {
-      "id": "esrgan-x4-anime",
-      "filename": "realesrgan-x4-anime.onnx",
+      "id": "Real-ESRGAN-x4plus",
+      "filename": "Real-ESRGAN-x4plus.onnx",
       "url": "https://huggingface.co/qualcomm/Real-ESRGAN-x4plus/resolve/01179a4da7bf5ac91faca650e6afbf282ac93933/Real-ESRGAN-x4plus.onnx",
       "expectedSize": null,
       "sha256": null,
-      "description": "Real-ESRGAN x4 Anime ONNX export — accepts 8×8 RGB input, produces 32×32 RGB output. Source up to you: https://openmodeldb.info/ has many trained variants; community ONNX conversions are scattered across Hugging Face + GitHub releases. Until a stable public URL is locked in here, install the file manually at public/models/realesrgan-x4-anime.onnx.",
-      "manualInstallNote": "Find any Real-ESRGAN x4 Anime ONNX export (e.g. from https://openmodeldb.info/m/x4-Real-ESRGAN-Anime, then convert with onnxruntime tools), drop it at public/models/realesrgan-x4-anime.onnx, and reload."
+      "description": "Real-ESRGAN-x4plus ONNX export — accepts 8×8 RGB input, produces 32×32 RGB output. Source up to you: https://openmodeldb.info/ has many trained variants; community ONNX conversions are scattered across Hugging Face + GitHub releases. Until a stable public URL is locked in here, install the file manually at public/models/Real-ESRGAN-x4plus.onnx.",
+      "manualInstallNote": ""
     }
   ]
 }

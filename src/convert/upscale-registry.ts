@@ -22,7 +22,7 @@
  */
 
 import {
-  AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+  AI_CACHE_MODEL_ESRGAN_X4_PLUS,
   AI_CACHE_MODEL_NEAREST_NEIGHBOUR,
   AI_CACHE_MODEL_UNSPECIFIED,
 } from '../core/cart-poncho/ai-cache';
@@ -55,6 +55,29 @@ export interface UpscaleModelContext {
     url: string,
     opts?: { signal?: AbortSignal; onProgress?: (p: { loaded: number; total: number | null; fromCache: boolean }) => void },
   ) => Promise<ArrayBuffer>;
+  /**
+   * Evict a previously-cached asset. Called by clients when the bytes
+   * they got back failed to parse (e.g. ORT protobuf parse error) — a
+   * stale Cache Storage entry from a prior bad fetch otherwise locks
+   * the user into a permanent failure mode that's only fixable via
+   * DevTools.
+   */
+  evictAsset?: (url: string) => Promise<void>;
+  /**
+   * Optional progress sink for the *first* model-bytes fetch (pre-flight).
+   * The convert UI uses this to keep the progress modal alive while the
+   * 64 MB ESRGAN weights download — without it the modal looks frozen
+   * for a minute on the first run, then jumps to active when tile
+   * inference begins.
+   */
+  onModelLoadProgress?: (p: { loaded: number; total: number | null; fromCache: boolean }) => void;
+  /**
+   * Phase signal for the post-download / pre-inference window.
+   * `'compiling'` fires before `InferenceSession.create` (which can
+   * block 10-30 s on a 64 MB model); `'ready'` fires once the session
+   * is usable. UIs use this to swap the modal status text.
+   */
+  onSessionPhase?: (phase: 'compiling' | 'ready') => void;
 }
 
 /**
@@ -129,7 +152,7 @@ export const NEAREST_NEIGHBOUR_MODEL: UpscaleModel = {
 };
 
 /**
- * Stable URL for the Real-ESRGAN x4 Anime ONNX file. Served by Vite
+ * Stable URL for the Real-ESRGAN-x4plus ONNX file. Served by Vite
  * from the project's `public/models/` directory — populated by
  * `npm run setup:models` reading `scripts/models-manifest.json`. We
  * use a relative path so the same code works in dev (Vite serves
@@ -142,7 +165,7 @@ export const NEAREST_NEIGHBOUR_MODEL: UpscaleModel = {
  * pipeline NN-falls-back per tile — Settings UX surfaces an
  * "install models" hint.
  */
-export const ESRGAN_X4_ANIME_MODEL_URL = '/models/realesrgan-x4-anime.onnx';
+export const ESRGAN_X4_PLUS_MODEL_URL = '/models/Real-ESRGAN-x4plus.onnx';
 
 /**
  * Hard-coded I/O shape for the Qualcomm Real-ESRGAN x4plus ONNX
@@ -157,14 +180,14 @@ export const ESRGAN_X4_ANIME_MODEL_URL = '/models/realesrgan-x4-anime.onnx';
  *   - Snap each pixel to the extended palette → pv 0..255.
  *
  * If the user swaps in a different ONNX export with different shape
- * / pin names, override via per-model config (`modelConfig['esrgan-x4-anime']`).
+ * / pin names, override via per-model config (`modelConfig['Real-ESRGAN-x4plus']`).
  */
 const ESRGAN_X4_INPUT_SIZE = 128;
 const ESRGAN_X4_OUTPUT_SIZE = 512;
 const ESRGAN_X4_INPUT_PIN = 'image';
 
 /**
- * Real-ESRGAN x4 Anime — first registered local model (Phase 5a).
+ * Real-ESRGAN x4 Plus — first registered local model (Phase 5a).
  *
  * The ONNX session is dynamically imported on first use so the heavy
  * `onnxruntime-web` runtime stays out of the main bundle until the
@@ -180,22 +203,22 @@ const ESRGAN_X4_INPUT_PIN = 'image';
  * The hard-coded I/O shape below matches the standard Real-ESRGAN x4
  * export (8×8 → 32×32, NCHW, RGB, [0..1]).
  */
-export const ESRGAN_X4_ANIME_MODEL: UpscaleModel = {
-  id: 'esrgan-x4-anime',
-  label: 'Real-ESRGAN x4 Anime (local, ONNX/WebGPU)',
+export const ESRGAN_X4_PLUS_MODEL: UpscaleModel = {
+  id: 'Real-ESRGAN-x4plus',
+  label: 'Real-ESRGAN-x4plus (local, ONNX/WebGPU)',
   description:
-    'A community ESRGAN variant trained on anime-styled imagery. Runs entirely in your ' +
+    'Qualcomm ESRGAN variant. Runs entirely in your ' +
     'browser via ONNX Runtime Web (WebGPU preferred, WASM fallback). Produces visibly ' +
     'smoother edges than the nearest-neighbour fallback; will fail "no content invention" ' +
     'on some BG decoration tiles until Phase 5b\'s constraint guards land. Model file ' +
     'is bundled — install via `npm run setup:models`.',
-  cacheModelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+  cacheModelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
   supportedWorkflows: ['rom-bake', 'ram-runtime'],
   create(_workflow, config, ctx) {
     // The URL is fixed; only optional knobs come from per-model config.
     const url = typeof config['modelUrl'] === 'string' && (config['modelUrl'] as string).trim().length > 0
       ? (config['modelUrl'] as string).trim()
-      : ESRGAN_X4_ANIME_MODEL_URL;
+      : ESRGAN_X4_PLUS_MODEL_URL;
     const providers = Array.isArray(config['executionProviders'])
       ? (config['executionProviders'] as string[])
       : ['webgpu', 'wasm'];
@@ -218,7 +241,7 @@ export const ESRGAN_X4_ANIME_MODEL: UpscaleModel = {
       : ESRGAN_X4_OUTPUT_SIZE;
 
     const cfg: OnnxUpscaleClientConfig = {
-      modelId: AI_CACHE_MODEL_ESRGAN_X4_ANIME,
+      modelId: AI_CACHE_MODEL_ESRGAN_X4_PLUS,
       modelUrl: url,
       executionProviders: providers,
       input: {
@@ -239,16 +262,30 @@ export const ESRGAN_X4_ANIME_MODEL: UpscaleModel = {
     // The platform's model-asset cache (browser Cache Storage on web)
     // wraps this loader so weights persist across reloads. Without a
     // ctx loader, the client falls back to plain fetch.
-    if (ctx?.loadAsset) {
-      return new OnnxUpscaleClient(cfg, { modelLoader: ctx.loadAsset });
+    if (ctx?.loadAsset || ctx?.onModelLoadProgress || ctx?.evictAsset || ctx?.onSessionPhase) {
+      const hooks: ConstructorParameters<typeof OnnxUpscaleClient>[1] = {};
+      if (ctx.loadAsset) hooks.modelLoader = ctx.loadAsset;
+      if (ctx.onModelLoadProgress) hooks.onModelLoadProgress = ctx.onModelLoadProgress;
+      if (ctx.onSessionPhase) hooks.onSessionPhase = ctx.onSessionPhase;
+      if (ctx.evictAsset) hooks.evictModel = ctx.evictAsset;
+      return new OnnxUpscaleClient(cfg, hooks);
     }
     return new OnnxUpscaleClient(cfg);
   },
 };
 
+// The shipped registry intentionally exposes only the deterministic NN
+// fallback. ESRGAN, AnimeSharp, and SPAN-x4 were investigated as Phase
+// 5a candidates but each had quality/runtime issues unfit for the
+// browser path: ESRGAN's photo-trained weights produced sub-perceptual
+// changes on pixel-art primer; AnimeSharp's fp16 export hit Node ORT
+// binding edge cases; SPAN-x4's external-data shipped export produced
+// scrambled tiles. The model machinery is preserved
+// (`OnnxUpscaleClient`, `UpscaleModelContext`, the
+// `ESRGAN_X4_PLUS_MODEL_URL` constant) so users can attach a custom
+// `.onnx` from the Convert panel without rebuilding the app.
 const MODELS: Record<string, UpscaleModel> = {
   [NEAREST_NEIGHBOUR_MODEL.id]: NEAREST_NEIGHBOUR_MODEL,
-  [ESRGAN_X4_ANIME_MODEL.id]: ESRGAN_X4_ANIME_MODEL,
 };
 
 /** Default model id — what a fresh config gets. */

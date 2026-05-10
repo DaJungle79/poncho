@@ -39,8 +39,9 @@ export const AI_CACHE_VERSION = 1;
  *   - 0xff       deterministic nearest-neighbour fallback
  */
 export const AI_CACHE_MODEL_UNSPECIFIED = 0;
-/** Real-ESRGAN x4 Anime — first registered local model (Phase 5a). */
-export const AI_CACHE_MODEL_ESRGAN_X4_ANIME = 1;
+/** Real-ESRGAN-x4plus — first registered local model (Phase 5a). */
+export const AI_CACHE_MODEL_ESRGAN_X4_PLUS = 1;
+export const AI_CACHE_MODEL_SPAN_X4_CH48 = 2;
 export const AI_CACHE_MODEL_NEAREST_NEIGHBOUR = 0xff;
 
 const SECTION_HEADER_BYTES = 4 + 2 + 2 + 4; // magic + version + model + count = 12

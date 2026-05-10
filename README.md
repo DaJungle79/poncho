@@ -28,7 +28,7 @@ So here we are. About 8,300 lines of TypeScript, no game-specific hacks, every c
 git clone https://github.com/DaJungle79/poncho.git
 cd poncho
 npm install
-npm run setup          # optional — copies ONNX runtime + fetches AI upscale models
+npm run setup          # optional — copies ONNX runtime sidecars (only needed if you bring your own ONNX model)
 npm run dev
 ```
 
@@ -63,12 +63,12 @@ Open <http://localhost:5173>. Click the cassette icon in the left sidebar to ope
 
 ### AI upscale (Poncho-NES, v0.4) Alpha!
 
-- **Pluggable upscale models** — the registry in `src/convert/upscale-registry.ts` is the single source of truth. Each model declares a stable id, label, supported workflows (CHR-ROM bake / CHR-RAM runtime), and a factory that returns an `UpscaleClient`. Pick a model for ROM and a model for RAM in **Settings → AI upscale**; default for both is the deterministic 4× nearest-neighbour fallback.
-- **Bundled local models** — the build ships its own ONNX weights from `public/models/` (gitignored, Vite serves them at `/models/<name>.onnx`). The first model is **Real-ESRGAN x4 Anime** (Phase 5a); see [`docs/models-setup.md`](docs/models-setup.md) for how to install it (one of: edit the URL in `scripts/models-manifest.json` then run `npm run setup:models`, or drop the file in directly). More models land via the same manifest.
-- **Convert .nes → .poncho with AI bake-now** — CHR-ROM games run every unique tile through the active model at conversion time, producing a `.poncho` whose AI cache section carries the upscaled tiles. PpuUltra's per-tile resolver splices them in at render time, so NES-shape banking, OAM, and pattern-base behaviour all keep working. Modal shows progress, ETA, Cancel; failed tiles drop to NN so a flaky model doesn't break the bake.
-- **Lazy upscale at runtime for CHR-RAM games** — tiles uploaded by PRG at runtime get sent to the active runtime model in the background; framebuffer pops in to higher quality as upscales return. Per-tile granularity, so a frame can mix native and 4× nearest-neighbour tiles freely.
-- **Self-upgrading `.poncho` file** — runtime upscales are written back into the cartridge's AI cache section (every 60 s + on cart eject), so each session bakes a few more tiles permanently. Subsequent plays start from that cache; eventually AI calls drop to zero.
-- **Adding a new model**: drop an entry in `scripts/models-manifest.json`, implement `UpscaleClient` (or reuse `OnnxUpscaleClient` with a different config), allocate a numeric `cacheModelId` in `ai-cache.ts`, register the `UpscaleModel` definition.
+- **Pluggable upscale model registry** — `src/convert/upscale-registry.ts` is the single source of truth. The shipped UI registers only the deterministic 4× nearest-neighbour fallback; ESRGAN, AnimeSharp, and SPAN-x4 were prototyped but didn't pass the quality bar on pixel-art primer (see [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md) Phase 5a notes).
+- **Convert .nes → .poncho** — open the L3 **Convert .nes** panel, pick a `.nes` file, leave **Upscale** ticked, optionally **Attach a custom model (.onnx)**, click Convert. CHR-ROM games go through the bake-now pipeline (every unique tile is processed and embedded in the `.poncho` AI cache section); CHR-RAM games are wrapped verbatim and the runtime worker fills the cache lazily during play.
+- **Custom-model attach** — the **Convert .nes** panel accepts a user-supplied `.onnx` file. The wiring assumes the standard pixel-art SR contract (8×8 → 32×32, NCHW, RGB, [0..1] fp32, pin names `input`/`output`). Mismatched models surface a clear error from `OnnxUpscaleClient`'s preflight instead of silently NN-falling-back every tile.
+- **Self-upgrading `.poncho` file** — runtime upscales are written back into the cartridge's AI cache section (every 60 s + on cart eject), so each session bakes a few more tiles permanently. Subsequent plays start from that cache; eventually AI work drops to zero.
+- **Node-side ESRGAN/SPAN bake CLI** — `npm run poncho:convert -- <input.nes> --model Real-ESRGAN-x4plus` runs `OnnxUpscaleClient` through `onnxruntime-node` (CoreML on macOS, CPU fallback). Bypasses the browser entirely. See `npx tsx scripts/poncho-convert.ts --help` for the full flag list.
+- **Adding a new model in code**: implement `UpscaleClient` (or reuse `OnnxUpscaleClient` with a different config), allocate a numeric `cacheModelId` in `ai-cache.ts`, register the `UpscaleModel` definition in `upscale-registry.ts`.
 
 
 ### Architecture

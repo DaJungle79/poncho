@@ -164,9 +164,27 @@ export async function convertInesToPonchoAi(
   }
   const tileCount = chr.length / 16;
 
-  const client = opts.client ?? new MockUpscaleClient();
+  const client: UpscaleClient = opts.client ?? new MockUpscaleClient();
   const globalCache = opts.globalCache ?? new MemoryGlobalCache();
   const concurrency = Math.max(1, opts.concurrency ?? 2);
+
+  // Pre-flight the model before the per-tile loop. If the runtime can't
+  // even initialise (model file missing, WASM/WebGPU init failure, shape
+  // mismatch in the ONNX export), bail loudly with a single error
+  // instead of letting `upscaleTile`'s per-tile catch silently
+  // NN-fallback every tile — which renders identically to a "successful"
+  // bake at the byte level but is actually pure nearest-neighbour.
+  if (client.preflight) {
+    try {
+      await client.preflight();
+    } catch (err) {
+      throw new ConvertError(
+        `AI upscale model failed to initialise — ${(err as Error).message ?? String(err)}. ` +
+        `No tiles were processed; the conversion was aborted to avoid producing a pure ` +
+        `nearest-neighbour bake disguised as an AI bake.`,
+      );
+    }
+  }
 
   // Bake-time dedup: hash by tile bytes + the shared `TILE_HASH_PALETTE`
   // constant. Sub-palette context is unknown at conversion (one tile

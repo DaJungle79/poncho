@@ -33,7 +33,17 @@ export {
 
 export {
   NEAREST_NEIGHBOUR_MODEL,
+  ESRGAN_X4_PLUS_MODEL,
+  ESRGAN_X4_PLUS_MODEL_URL,
   createUpscaleClient,
   listUpscaleModels,
   type UpscaleModel,
+  type UpscaleModelContext,
 } from '../../src/convert/upscale-registry';
+
+export {
+  OnnxUpscaleClient,
+  type OnnxUpscaleClientConfig,
+  type OnnxUpscaleClientHooks,
+  type OrtFacade,
+} from '../../src/convert/clients/onnx-upscale-client';

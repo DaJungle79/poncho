@@ -174,7 +174,10 @@ export class App {
       getUpscaleContext: () => {
         const cache = this.platform.modelAssetCache;
         if (!cache) return undefined;
-        return { loadAsset: (url, opts) => cache.load(url, opts) };
+        return {
+          loadAsset: (url, opts) => cache.load(url, opts),
+          evictAsset: (url) => cache.remove(url),
+        };
       },
       onStatus: (text) => this.setStatus(text),
       onConverted: () => this.romsPanel.refreshBrowserList(),
@@ -463,7 +466,10 @@ export class App {
     const ai = this.config.get().ai;
     const cache = this.platform.modelAssetCache;
     const ctx = cache
-      ? { loadAsset: (url: string, opts?: { signal?: AbortSignal; onProgress?: (p: { loaded: number; total: number | null; fromCache: boolean }) => void }) => cache.load(url, opts) }
+      ? {
+          loadAsset: (url: string, opts?: { signal?: AbortSignal; onProgress?: (p: { loaded: number; total: number | null; fromCache: boolean }) => void }) => cache.load(url, opts),
+          evictAsset: (url: string) => cache.remove(url),
+        }
       : undefined;
     const { client, model, usedFallback } = createUpscaleClient(
       ai.ramModelId,
@@ -475,6 +481,15 @@ export class App {
       log.warn('rom', `runtime upscale: requested model "${ai.ramModelId}" unavailable; falling back to "${model.id}"`);
     } else {
       log.info('rom', `runtime upscale: using model "${model.id}"`);
+    }
+    // Fire-and-forget preflight: surface a clear console warning if the
+    // model can't initialise (missing weights, WebGPU init failure).
+    // Per-tile NN-fallback still keeps the game playable, but at least
+    // the developer sees *why* every tile is rendering as nearest-neighbour.
+    if (client.preflight) {
+      void client.preflight().catch((err) => {
+        log.warn('rom', `runtime upscale: model "${model.id}" preflight failed; per-tile NN fallback will run for the whole session — ${(err as Error).message ?? String(err)}`);
+      });
     }
 
     const worker = new UpscaleWorker({

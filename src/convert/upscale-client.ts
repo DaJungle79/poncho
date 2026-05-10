@@ -46,6 +46,19 @@ export interface UpscaleClient {
    * nearest-neighbour for that tile (or substitute, depending on policy).
    */
   upscaleTile(nesTile: Uint8Array, subPalette: Uint8Array): Promise<Uint8Array>;
+
+  /**
+   * Optional pre-flight: load weights, create the inference session,
+   * verify the runtime is usable. Bake-now callers invoke this before
+   * the per-tile loop so a missing model file or broken WebGPU surface
+   * fails the whole conversion loudly instead of silently
+   * NN-fallbacking every tile (which looks identical to a successful
+   * bake). Implementations that have no setup cost (e.g. NN) leave
+   * this unset.
+   *
+   * Throws `UpscaleError` on hard failure.
+   */
+  preflight?(): Promise<void>;
 }
 
 /**
