@@ -35,6 +35,8 @@
  * layout PpuUltra uses internally: `(a << 24) | (b << 16) | (g << 8) | r`.
  */
 
+import { lerpOklab } from './oklch';
+
 /** Total entries in an extended sub-palette. */
 export const EXTENDED_PALETTE_SIZE = 256;
 
@@ -87,11 +89,20 @@ export function buildExtendedSubPalette(
 
 /**
  * Write `RAMP_LENGTH` (84) consecutive entries starting at `start`,
- * forming a black → base → white linear ramp through the base colour
- * at shade `RAMP_BASE_SHADE` (= 41).
+ * forming a black → base → white ramp through the base colour at
+ * shade `RAMP_BASE_SHADE` (= 41).
  *
- * Below the base shade: linear blend from black to base.
- * Above the base shade: linear blend from base to white.
+ * **v0.5 Phase 4 change**: interpolation now happens in Oklab
+ * (perceptually-uniform colour space) rather than linear sRGB.
+ * Result: mid-shades are visibly brighter / closer to perceptual
+ * midpoint, so xBRZ-snap output (and any future RGB-output upscaler)
+ * lands on a closer perceptual match for any RGB midpoint.
+ *
+ * Backward-compat note: existing v0.4 AI caches with pv 4..255 values
+ * render with subtly different colours after this change — every pv
+ * 4..255 lookup goes through the new interpolation. Visually that's
+ * exactly what we want (no muddy mid-tones); functionally no caches
+ * break, since the encoding is unchanged.
  */
 function fillRamp(out: Uint32Array, start: number, baseRgba: number): void {
   const r = baseRgba & 0xff;
@@ -103,16 +114,14 @@ function fillRamp(out: Uint32Array, start: number, baseRgba: number): void {
     let nr: number, ng: number, nb: number;
     if (shade <= RAMP_BASE_SHADE) {
       // Black at shade 0 → base at shade RAMP_BASE_SHADE.
-      const t = shade / RAMP_BASE_SHADE; // 0..1
-      nr = Math.round(r * t);
-      ng = Math.round(g * t);
-      nb = Math.round(b * t);
+      const t = shade / RAMP_BASE_SHADE;
+      const blended = lerpOklab(0, 0, 0, r, g, b, t);
+      nr = blended.r; ng = blended.g; nb = blended.b;
     } else {
       // Base at shade RAMP_BASE_SHADE → white at shade RAMP_LENGTH-1.
       const t = (shade - RAMP_BASE_SHADE) / (RAMP_LENGTH - 1 - RAMP_BASE_SHADE);
-      nr = Math.round(r + (255 - r) * t);
-      ng = Math.round(g + (255 - g) * t);
-      nb = Math.round(b + (255 - b) * t);
+      const blended = lerpOklab(r, g, b, 255, 255, 255, t);
+      nr = blended.r; ng = blended.g; nb = blended.b;
     }
     out[start + shade] = ((a << 24) | (nb << 16) | (ng << 8) | nr) >>> 0;
   }
