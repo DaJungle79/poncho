@@ -33,7 +33,6 @@ import { ConsolesPanel } from './ui/panels/consoles-panel';
 import { RomsPanel } from './ui/panels/roms-panel';
 import { SettingsPanel } from './ui/panels/settings-panel';
 import { ControlsPanel } from './ui/panels/controls-panel';
-import { ConvertPanel } from './ui/panels/convert-panel';
 import { RomInfoClient } from '../../rom/info-client';
 import type { LoadedRom, RomMeta } from '../../domain/rom';
 import type { Platform } from '../../platform/types';
@@ -138,7 +137,14 @@ export class App {
       filePicker: platform.filePicker,
       onLoaded: (rom) => this.loadRom(rom),
       onStatus: (text) => this.setStatus(text),
-      onOpenConvert: () => this.stack.toggleL3('convert'),
+      getUpscaleContext: () => {
+        const cache = this.platform.modelAssetCache;
+        if (!cache) return undefined;
+        return {
+          loadAsset: (url, opts) => cache.load(url, opts),
+          evictAsset: (url) => cache.remove(url),
+        };
+      },
     });
     this.stack.registerL2(this.romsPanel);
     const initialSpec = ALL_SPECS.find((s) => s.id === this.config.get().general.selectedConsoleId) ?? ALL_SPECS[0]!;
@@ -165,28 +171,6 @@ export class App {
       onBindingsChanged: (bindings) => this.keyboard.setBindings(bindings),
     });
     this.stack.registerL3(controlsPanel);
-
-    const convertPanel = new ConvertPanel({
-      config: this.config,
-      filePicker: platform.filePicker,
-      romLibrary: platform.romLibrary,
-      getModelConfig: (id) => this.config.get().ai.modelConfig[id] ?? {},
-      getUpscaleContext: () => {
-        const cache = this.platform.modelAssetCache;
-        if (!cache) return undefined;
-        return {
-          loadAsset: (url, opts) => cache.load(url, opts),
-          evictAsset: (url) => cache.remove(url),
-        };
-      },
-      onStatus: (text) => this.setStatus(text),
-      onConverted: () => this.romsPanel.refreshBrowserList(),
-      onClose: () => {
-        this.stack.closeAll();
-        this.sidebar.syncActive();
-      },
-    });
-    this.stack.registerL3(convertPanel);
 
     this.sidebar.add({
       id: 'consoles',

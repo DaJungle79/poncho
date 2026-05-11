@@ -7,6 +7,11 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+### Changed - UI/UX ROM add flow
+
+- **ROMs panel Add ROM subview** - the old inline Upload / Convert buttons are replaced by one stable `Add ROM` action at the top of the ROMs panel. It toggles a darker local `Add new ROM` subview with a drag-and-drop zone, click-to-pick fallback, selected-file summary, and Esc-to-close behavior.
+- **Unified upload + conversion** - Classic NES accepts `.nes`; Poncho-NES accepts `.poncho` directly and `.nes` via client-side conversion to `.poncho`. The Upscale checkbox and optional custom ONNX model attach appear only when the selected Poncho-NES file needs conversion.
+
 ### Added — v0.5 phase 5: settings UI + scaler defaults
 
 - **Scaler dropdown groups** — the Scale selector in Settings is now split into three `<optgroup>`s: Nearest-neighbour (1×/2×/4×), xBRZ (2×–6×), and MMPX (2×). A hint below the selector describes the tradeoff.
