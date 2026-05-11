@@ -218,11 +218,8 @@ export class App {
 
     mountLucideIcons();
 
-    // Open Consoles on first load, with the active console's ROM bay beside it.
+    // Open Consoles on first load; the ROM bay opens when the user clicks ROMs.
     this.stack.openL2('consoles');
-    this.stack.openL3('roms');
-    this.romsOpenConsoleId = initialSpec.id;
-    this.consolesPanel.setRomsOpen(initialSpec.id);
     this.sidebar.syncActive();
 
     this.keyboard.attach();

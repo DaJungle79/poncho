@@ -32,7 +32,7 @@ npm run setup          # optional — copies ONNX runtime sidecars (only needed 
 npm run dev
 ```
 
-Open <http://localhost:5173>. The **Consoles** panel opens with the active console's **ROMs** bay beside it. Use the **ROMs** button on a console card to show or hide that bay, then either:
+Open <http://localhost:5173>. The **Consoles** panel opens first. Use the **ROMs** button on a console card to show or hide that console's ROM bay, then either:
 
 - **Add a ROM** — opens a local add view with a drop zone; uploaded ROMs are saved to browser storage (IndexedDB), surviving reloads
 - **Drop a file in `roms/`** — appears under "Server" while the dev server is running
