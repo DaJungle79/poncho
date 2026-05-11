@@ -184,6 +184,14 @@ export class App {
       icon: () => lucide('cpu'),
     });
     this.sidebar.add({
+      id: 'settings',
+      panelId: 'settings',
+      label: 'Settings',
+      position: 'top',
+      hotkey: '4',
+      icon: () => lucide('settings'),
+    });
+    this.sidebar.add({
       id: 'pause',
       label: 'Pause',
       position: 'top',
@@ -206,14 +214,6 @@ export class App {
       hotkey: '3',
       icon: () => lucide('power'),
       onClick: () => this.togglePower(),
-    });
-    this.sidebar.add({
-      id: 'settings',
-      panelId: 'settings',
-      label: 'Settings',
-      position: 'bottom',
-      hotkey: '4',
-      icon: () => lucide('settings'),
     });
 
     mountLucideIcons();

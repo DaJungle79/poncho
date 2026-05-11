@@ -52,7 +52,7 @@ Open <http://localhost:5173>. The **Consoles** panel opens first. Use the **ROMs
 ### User interface
 
 - **Retro NES aesthetic** 
-- **Light + dark themes** — switchable in Settings, persisted across reloads
+- **Light + dark themes** — switchable from the Settings icon beside Consoles, persisted across reloads
 - **Rebindable keyboard controls** — click any binding, press the new key
 - **Adjustable scale** (1×, 2×, 4× nearest-neighbour) and audio volume
 

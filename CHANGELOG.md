@@ -9,6 +9,7 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ### Changed - UI/UX ROM add flow
 
+- **Settings moved up the sidebar** - the Settings icon now sits directly below Consoles instead of at the bottom of the menu, making configuration easier to find.
 - **ROMs move under Consoles** - the standalone ROMs sidebar item is gone. The app now opens on Consoles, and each console card has a selected-state ROMs button to show/hide that console's adjacent ROM bay.
 - **ROM storage labels aligned** - ROM lists now use `Local storage` and `Server storage`, with consistent empty-state text.
 - **Cartridge icon for ROMs** - the console card ROMs button now uses a cartridge-shaped SVG instead of the old cassette icon.

@@ -1,8 +1,8 @@
 import type { PanelStack } from './panel-stack';
 
 /**
- * Thin left-side icon nav. The first item lives at the top of the
- * sidebar, the last item at the bottom (separated by a flexible spacer).
+ * Thin left-side icon nav. Items can live in the top or bottom group,
+ * separated by a flexible spacer.
  *
  * Two kinds of items:
  *   - Panel items (`panelId`): clicking toggles an L2 panel.
