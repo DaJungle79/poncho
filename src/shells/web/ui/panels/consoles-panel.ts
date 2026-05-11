@@ -79,7 +79,7 @@ export class ConsolesPanel implements Panel {
       romsButton.className = 'console-roms-btn';
       romsButton.title = 'ROMs';
       romsButton.setAttribute('aria-label', `${spec.name} ROMs`);
-      const cartIcon = gameIcon('cassette');
+      const cartIcon = gameIcon('cartridge');
       cartIcon.setAttribute('width', '16');
       cartIcon.setAttribute('height', '16');
       romsButton.append(cartIcon, document.createTextNode('ROMs'));
