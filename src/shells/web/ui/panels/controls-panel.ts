@@ -41,12 +41,26 @@ export class ControlsPanel implements Panel {
     this.root.className = 'panel panel-l2';
     this.root.innerHTML = `
       <header class="panel-head">
-        <h2>Input mappings</h2>
+        <h2>Input</h2>
       </header>
       <div class="panel-body">
-        <div class="controls-rows" data-rows></div>
-        <button class="reset-controls" data-reset>Reset to defaults</button>
-        <p class="controls-hint">Click a button to rebind. Press the key you want.</p>
+        <section class="settings-group">
+          <label class="settings-row">
+            <span>Input type</span>
+            <select data-input-type>
+              <option value="keyboard" selected>Keyboard</option>
+              <option value="gamepad" disabled>Gamepad</option>
+              <option value="virtual" disabled>Virtual</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="settings-group">
+          <h3><i data-lucide="keyboard"></i><span>Mappings</span></h3>
+          <div class="controls-rows" data-rows></div>
+          <button class="reset-controls" data-reset>Reset to defaults</button>
+          <p class="controls-hint">Click a button to rebind. Press the key you want.</p>
+        </section>
       </div>
     `;
 

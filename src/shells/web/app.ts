@@ -185,7 +185,7 @@ export class App {
     this.sidebar.add({
       id: 'controls',
       panelId: 'controls',
-      label: 'Input mappings',
+      label: 'Input',
       position: 'top',
       hotkey: '4',
       icon: () => gameIcon('retro-controller'),
