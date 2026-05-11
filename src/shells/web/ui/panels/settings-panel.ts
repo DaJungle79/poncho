@@ -5,8 +5,6 @@ import type { Panel } from '../panel-stack';
 
 export interface SettingsPanelDeps {
   config: ConfigStore;
-  /** Triggered when the user clicks "Controls" — opens the L3 form. */
-  onOpenControls: () => void;
   /** Called whenever any setting changes. */
   onConfigChanged: (cfg: Config) => void;
 }
@@ -16,7 +14,6 @@ export interface SettingsPanelDeps {
  *   - Appearance: light / dark theme
  *   - Video: scale selector (1x / 2x / 4x)
  *   - Audio: volume slider + mute toggle
- *   - Controls: link that opens the L3 form (Player 1 keybinds)
  */
 export class SettingsPanel implements Panel {
   readonly id = 'settings';
@@ -125,14 +122,6 @@ export class SettingsPanel implements Panel {
             <span>Mute</span>
             <input type="checkbox" data-mute />
           </label>
-        </section>
-
-        <section class="settings-group">
-          <button class="settings-link" data-controls>
-            <i data-lucide="keyboard"></i>
-            <span>Controls</span>
-            <i data-lucide="chevron-right" class="chev"></i>
-          </button>
         </section>
       </div>
     `;
@@ -300,10 +289,6 @@ export class SettingsPanel implements Panel {
     this.overscanBottom.addEventListener('change', () => this.updateOverscan());
     this.overscanLeft.addEventListener('change', () => this.updateOverscan());
     this.overscanRight.addEventListener('change', () => this.updateOverscan());
-
-    this.root
-      .querySelector<HTMLButtonElement>('[data-controls]')!
-      .addEventListener('click', () => this.deps.onOpenControls());
   }
 }
 

@@ -26,7 +26,7 @@ import { createFilter } from '../../renderer/filters';
 import { OverscanCropFilter } from '../../renderer/filters/overscan';
 import type { RenderPipeline } from '../../renderer/renderer';
 import { applyLogLevelsFromQuery, log } from '../../debug/logger';
-import { mountLucideIcons } from './ui/icons';
+import { gameIcon, mountLucideIcons } from './ui/icons';
 import { PanelStack } from './ui/panel-stack';
 import { Sidebar } from './ui/sidebar';
 import { ConsolesPanel } from './ui/panels/consoles-panel';
@@ -155,7 +155,6 @@ export class App {
 
     this.settingsPanel = new SettingsPanel({
       config: this.config,
-      onOpenControls: () => this.stack.toggleL3('controls'),
       onConfigChanged: (cfg) => {
         this.renderer.setPipeline(this.buildPipeline());
         this.platform.audio.setVolume(cfg.audio.volume);
@@ -173,7 +172,7 @@ export class App {
       config: this.config,
       onBindingsChanged: (bindings) => this.keyboard.setBindings(bindings),
     });
-    this.stack.registerL3(controlsPanel);
+    this.stack.registerL2(controlsPanel);
 
     this.sidebar.add({
       id: 'consoles',
@@ -184,11 +183,19 @@ export class App {
       icon: () => lucide('cpu'),
     });
     this.sidebar.add({
+      id: 'controls',
+      panelId: 'controls',
+      label: 'Controls',
+      position: 'top',
+      hotkey: '4',
+      icon: () => gameIcon('retro-controller'),
+    });
+    this.sidebar.add({
       id: 'settings',
       panelId: 'settings',
       label: 'Settings',
       position: 'top',
-      hotkey: '4',
+      hotkey: '5',
       icon: () => lucide('settings'),
     });
     this.sidebar.add({

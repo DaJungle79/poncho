@@ -1028,7 +1028,7 @@ select:focus-visible {
 .overscan-field input[type="number"]::-webkit-inner-spin-button,
 .overscan-field input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
 
-/* ----- Controls panel (L3) ----------------------------------------------- */
+/* ----- Controls panel ----------------------------------------------------- */
 
 .controls-rows {
   display: flex;

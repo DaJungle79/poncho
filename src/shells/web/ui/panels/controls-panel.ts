@@ -23,7 +23,7 @@ const BUTTONS: { key: NesButton; label: string }[] = [
 ];
 
 /**
- * Slide-out (L3) controls form. Each row shows one NES button with its
+ * Slide-out controls form. Each row shows one NES button with its
  * currently-bound key code; click a row to enter "press a key" mode and
  * the next keydown captures the new binding. Reset button restores the
  * defaults from `DEFAULT_PLAYER1_KEYS`.
@@ -38,7 +38,7 @@ export class ControlsPanel implements Panel {
 
   constructor(private readonly deps: ControlsPanelDeps) {
     this.root = document.createElement('section');
-    this.root.className = 'panel panel-l3';
+    this.root.className = 'panel panel-l2';
     this.root.innerHTML = `
       <header class="panel-head">
         <h2>Controls</h2>

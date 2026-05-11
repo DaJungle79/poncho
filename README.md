@@ -52,9 +52,9 @@ Open <http://localhost:5173>. The **Consoles** panel opens first. Use the **ROMs
 ### User interface
 
 - **Retro NES aesthetic** 
-- **Light + dark themes** — switchable from the Settings icon beside Consoles, persisted across reloads
+- **Light + dark themes** — switchable from the Settings icon in the sidebar, persisted across reloads
 - **Console-aware settings** — Video controls stay visible as a section and explain when the selected console does not support them
-- **Rebindable keyboard controls** — click any binding, press the new key
+- **Top-level controls** — open Controls from the sidebar, click any binding, press the new key
 - **Adjustable scale** (1×, 2×, 4× nearest-neighbour) and audio volume
 
 ### ROM management
@@ -101,7 +101,7 @@ Audio is muted until you interact with the page — that's a browser autoplay po
        V       Start
 ```
 
-Rebind any binding under **Settings → Controls**.
+Rebind any binding from the sidebar **Controls** section.
 
 ## Virtual consoles
 
