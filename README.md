@@ -34,8 +34,8 @@ npm run dev
 
 Open <http://localhost:5173>. The **Consoles** panel opens first. Use the **ROMs** button on a console card to show or hide that console's ROM bay, then either:
 
-- **Add a ROM** — opens a local add view with a drop zone; uploaded ROMs are saved to browser storage (IndexedDB), surviving reloads
-- **Drop a file in `roms/`** — appears under "Server" while the dev server is running
+- **Add a ROM** — opens a local add view with a drop zone; uploaded ROMs are saved to local storage (IndexedDB), surviving reloads
+- **Drop a file in `roms/`** — appears under "Server storage" while the dev server is running
 
 (Poncho doesn't ship any games. Bring your own.)
 
@@ -58,8 +58,8 @@ Open <http://localhost:5173>. The **Consoles** panel opens first. Use the **ROMs
 
 ### ROM management
 
-- **Browser storage** — uploaded ROMs persist across browser sessions; Classic NES stores `.nes`, while Poncho-NES stores `.poncho`
-- **Server folder** — files placed in `roms/` are served by the Vite dev middleware (development only)
+- **Local storage** — uploaded ROMs persist across browser sessions; Classic NES stores `.nes`, while Poncho-NES stores `.poncho`
+- **Server storage** — files placed in `roms/` are served by the Vite dev middleware (development only)
 
 ### AI upscale (Poncho-NES, v0.4) Alpha!
 

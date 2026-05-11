@@ -117,12 +117,12 @@ export class RomsPanel implements Panel {
 
         <div class="rom-view rom-list-view" data-list-view>
           <section class="rom-section">
-            <h3><i data-lucide="hard-drive"></i><span>Browser storage</span></h3>
+            <h3><i data-lucide="hard-drive"></i><span>Local storage</span></h3>
             <ul class="rom-list" data-browser-list></ul>
           </section>
 
           <section class="rom-section" data-server-section>
-            <h3><i data-lucide="folder"></i><span>Server</span> <span class="hint">/roms/</span></h3>
+            <h3><i data-lucide="folder"></i><span>Server storage</span> <span class="hint">/roms/</span></h3>
             <ul class="rom-list" data-server-list></ul>
           </section>
         </div>
@@ -183,9 +183,9 @@ export class RomsPanel implements Panel {
     `;
 
     const head = this.root.querySelector<HTMLElement>('.panel-head')!;
-    const cassette = gameIcon('cassette');
-    cassette.classList.add('panel-head-icon');
-    head.prepend(cassette);
+    const cartridge = gameIcon('cartridge');
+    cartridge.classList.add('panel-head-icon');
+    head.prepend(cartridge);
 
     this.panelTitle = this.root.querySelector<HTMLHeadingElement>('[data-panel-title]')!;
     this.listView = this.root.querySelector<HTMLElement>('[data-list-view]')!;
@@ -300,8 +300,7 @@ export class RomsPanel implements Panel {
     }
     const entries = all.filter((e) => hasAnyExtension(e.name, this.target.libraryExtensions));
     if (entries.length === 0) {
-      this.browserList.innerHTML =
-        `<li class="rom-empty">Add a ${this.target.libraryExtensions.join(' or ')} file to store it here.</li>`;
+      this.browserList.innerHTML = '<li class="rom-empty">No ROMs added yet.</li>';
       return;
     }
     this.browserList.innerHTML = '';
@@ -372,8 +371,7 @@ export class RomsPanel implements Panel {
     }
     const files = all.filter((f) => hasAnyExtension(f, this.target.libraryExtensions));
     if (files.length === 0) {
-      this.serverList.innerHTML =
-        `<li class="rom-empty">Drop ${this.target.libraryExtensions.join(' or ')} files in <code>roms/</code>.</li>`;
+      this.serverList.innerHTML = '<li class="rom-empty">No ROMs added yet.</li>';
       return;
     }
     this.serverList.innerHTML = '';
