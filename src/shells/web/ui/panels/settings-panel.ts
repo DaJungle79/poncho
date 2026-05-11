@@ -12,6 +12,7 @@ export interface SettingsPanelDeps {
 /**
  * Slide-out settings menu. Holds:
  *   - Appearance: light / dark theme
+ *   - Input: controller input device selectors
  *   - Video: scale selector (1x / 2x / 4x)
  *   - Audio: volume slider + mute toggle
  */
@@ -121,6 +122,26 @@ export class SettingsPanel implements Panel {
           <label class="settings-row">
             <span>Mute</span>
             <input type="checkbox" data-mute />
+          </label>
+        </section>
+
+        <section class="settings-group">
+          <h3><i data-lucide="keyboard"></i><span>Input</span></h3>
+          <label class="settings-row">
+            <span>Player 1</span>
+            <select data-input-player="1">
+              <option value="keyboard" selected>Keyboard</option>
+              <option value="gamepad" disabled>Gamepad</option>
+              <option value="virtual" disabled>Virtual</option>
+            </select>
+          </label>
+          <label class="settings-row">
+            <span>Player 2</span>
+            <select data-input-player="2">
+              <option value="keyboard" selected>Keyboard</option>
+              <option value="gamepad" disabled>Gamepad</option>
+              <option value="virtual" disabled>Virtual</option>
+            </select>
           </label>
         </section>
       </div>

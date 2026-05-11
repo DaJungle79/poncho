@@ -41,7 +41,7 @@ export class ControlsPanel implements Panel {
     this.root.className = 'panel panel-l2';
     this.root.innerHTML = `
       <header class="panel-head">
-        <h2>Controls</h2>
+        <h2>Input mappings</h2>
       </header>
       <div class="panel-body">
         <div class="controls-rows" data-rows></div>

@@ -898,6 +898,10 @@ select:focus-visible {
   font-family: var(--font-mono);
   font-size: 12px;
 }
+.settings-row > span:first-child {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 .settings-row:last-child { border-bottom: 0; }
 
 .settings-row select,
