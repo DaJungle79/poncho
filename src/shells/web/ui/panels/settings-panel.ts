@@ -24,7 +24,8 @@ export class SettingsPanel implements Panel {
 
   private readonly themeSelect: HTMLSelectElement;
   private readonly scaleSelect: HTMLSelectElement;
-  private readonly overscanSection: HTMLElement;
+  private readonly videoContent: HTMLElement;
+  private readonly videoUnavailableHint: HTMLElement;
   private readonly overscanCheckbox: HTMLInputElement;
   private readonly overscanInputs: HTMLElement;
   private readonly overscanTop: HTMLInputElement;
@@ -61,6 +62,7 @@ export class SettingsPanel implements Panel {
 
         <section class="settings-group" data-overscan-section>
           <h3><i data-lucide="monitor"></i><span>Video</span></h3>
+          <div data-video-content>
           <label class="settings-row">
             <span>Scale</span>
             <select data-scale>
@@ -107,6 +109,10 @@ export class SettingsPanel implements Panel {
               <input type="number" min="0" max="64" data-overscan-right />
             </label>
           </div>
+          </div>
+          <p class="settings-hint" data-video-unavailable hidden>
+            Video settings are not available for selected console.
+          </p>
         </section>
 
         <section class="settings-group">
@@ -133,7 +139,8 @@ export class SettingsPanel implements Panel {
 
     this.themeSelect = this.root.querySelector<HTMLSelectElement>('[data-theme]')!;
     this.scaleSelect = this.root.querySelector<HTMLSelectElement>('[data-scale]')!;
-    this.overscanSection = this.root.querySelector<HTMLElement>('[data-overscan-section]')!;
+    this.videoContent = this.root.querySelector<HTMLElement>('[data-video-content]')!;
+    this.videoUnavailableHint = this.root.querySelector<HTMLElement>('[data-video-unavailable]')!;
     this.overscanCheckbox = this.root.querySelector<HTMLInputElement>('[data-overscan]')!;
     this.overscanInputs = this.root.querySelector<HTMLElement>('[data-overscan-inputs]')!;
     this.overscanTop = this.root.querySelector<HTMLInputElement>('[data-overscan-top]')!;
@@ -222,8 +229,11 @@ export class SettingsPanel implements Panel {
       }
     }
 
-    // Overscan only applies to Classic NES — hide the section for other consoles.
-    this.overscanSection.hidden = consoleId !== 'nes';
+    // Video settings only apply to Classic NES. Keep the section visible for
+    // other consoles so the Settings panel does not appear to lose a category.
+    const videoAvailable = consoleId === 'nes';
+    this.videoContent.hidden = !videoAvailable;
+    this.videoUnavailableHint.hidden = videoAvailable;
   }
 
   private updateOverscan(): void {
