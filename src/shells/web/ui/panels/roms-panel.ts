@@ -104,7 +104,7 @@ export class RomsPanel implements Panel {
 
   constructor(private readonly deps: RomsPanelDeps) {
     this.root = document.createElement('section');
-    this.root.className = 'panel panel-l2 roms-panel';
+    this.root.className = 'panel panel-l3 roms-panel';
     this.root.innerHTML = `
       <header class="panel-head">
         <h2 data-panel-title>NES ROMs</h2>

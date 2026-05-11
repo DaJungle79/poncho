@@ -9,6 +9,7 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ### Changed - UI/UX ROM add flow
 
+- **ROMs move under Consoles** - the standalone ROMs sidebar item is gone. The app now opens on Consoles with the active console's ROMs bay shown as the adjacent side panel, and each console card has a selected-state ROMs button to show/hide that bay.
 - **ROMs panel Add ROM subview** - the old inline Upload / Convert buttons are replaced by one stable `Add ROM` action at the top of the ROMs panel. It toggles a darker local `Add new ROM` subview with a drag-and-drop zone, click-to-pick fallback, selected-file summary, and Esc-to-close behavior.
 - **Unified upload + conversion** - Classic NES accepts `.nes`; Poncho-NES accepts `.poncho` directly and `.nes` via client-side conversion to `.poncho`. The Upscale checkbox and optional custom ONNX model attach appear only when the selected Poncho-NES file needs conversion.
 

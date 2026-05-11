@@ -770,21 +770,60 @@ select:focus-visible {
   flex-direction: column;
   gap: 8px;
 }
-.console-btn {
+.console-card {
   width: 100%;
+  position: relative;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+}
+.console-card:hover { border-color: var(--accent-cool); }
+.console-card.selected {
+  border-color: var(--accent);
+  background: var(--bg-deep);
+}
+.console-main-btn {
+  width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px 12px;
-  background: var(--bg-raised);
-  border: 1px solid var(--line);
+  padding: 10px 12px 42px;
+  background: transparent;
+  border: 0;
   color: var(--fg);
   text-align: left;
   cursor: pointer;
   font-family: inherit;
 }
-.console-btn:hover { border-color: var(--accent-cool); }
-.console-btn.selected {
+.console-main-btn:focus-visible { outline-offset: -3px; }
+.console-roms-btn {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  color: var(--fg);
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.console-roms-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.console-roms-btn:hover,
+.console-roms-btn.selected {
+  color: var(--accent-soft);
+  background: var(--bg-deep);
+}
+.console-roms-btn.selected {
   border-color: var(--accent);
   background: var(--bg-deep);
 }

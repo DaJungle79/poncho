@@ -26,7 +26,7 @@ import { createFilter } from '../../renderer/filters';
 import { OverscanCropFilter } from '../../renderer/filters/overscan';
 import type { RenderPipeline } from '../../renderer/renderer';
 import { applyLogLevelsFromQuery, log } from '../../debug/logger';
-import { gameIcon, mountLucideIcons } from './ui/icons';
+import { mountLucideIcons } from './ui/icons';
 import { PanelStack } from './ui/panel-stack';
 import { Sidebar } from './ui/sidebar';
 import { ConsolesPanel } from './ui/panels/consoles-panel';
@@ -66,11 +66,13 @@ export class App {
   // ----- UI ---------------------------------------------------------------
   private readonly stack: PanelStack;
   private readonly sidebar: Sidebar;
+  private readonly consolesPanel: ConsolesPanel;
   private readonly romsPanel: RomsPanel;
   private readonly settingsPanel: SettingsPanel;
 
   // ----- Run-loop state ---------------------------------------------------
   private activeConsoleId: string;
+  private romsOpenConsoleId: string | null = null;
   private powered = false;
   private paused = false;
   private lastFrameTs = 0;
@@ -124,12 +126,13 @@ export class App {
     this.sidebar = new Sidebar(this.stack);
     dom.sidebarHost.appendChild(this.sidebar.root);
 
-    const consolesPanel = new ConsolesPanel({
+    this.consolesPanel = new ConsolesPanel({
       specs: ALL_SPECS,
       initialSelectedId: this.config.get().general.selectedConsoleId,
       onSelect: (spec) => this.selectConsole(spec),
+      onToggleRoms: (spec) => this.toggleConsoleRoms(spec),
     });
-    this.stack.registerL2(consolesPanel);
+    this.stack.registerL2(this.consolesPanel);
 
     this.romsPanel = new RomsPanel({
       romLibrary: platform.romLibrary,
@@ -146,7 +149,7 @@ export class App {
         };
       },
     });
-    this.stack.registerL2(this.romsPanel);
+    this.stack.registerL3(this.romsPanel);
     const initialSpec = ALL_SPECS.find((s) => s.id === this.config.get().general.selectedConsoleId) ?? ALL_SPECS[0]!;
     this.romsPanel.setConsoleId(initialSpec.id, initialSpec.name);
 
@@ -181,23 +184,10 @@ export class App {
       icon: () => lucide('cpu'),
     });
     this.sidebar.add({
-      id: 'roms',
-      panelId: 'roms',
-      label: `${initialSpec.name} ROMs`,
-      position: 'top',
-      hotkey: '1',
-      icon: () => {
-        const el = gameIcon('cassette');
-        el.setAttribute('width', '22');
-        el.setAttribute('height', '22');
-        return el;
-      },
-    });
-    this.sidebar.add({
       id: 'pause',
       label: 'Pause',
       position: 'top',
-      hotkey: '2',
+      hotkey: '1',
       icon: () => lucide('pause'),
       onClick: () => this.togglePause(),
     });
@@ -205,7 +195,7 @@ export class App {
       id: 'reset',
       label: 'Reset',
       position: 'top',
-      hotkey: '3',
+      hotkey: '2',
       icon: () => lucide('rotate-ccw'),
       onClick: () => this.resetEmu(),
     });
@@ -213,7 +203,7 @@ export class App {
       id: 'off',
       label: 'Off / Eject',
       position: 'top',
-      hotkey: '4',
+      hotkey: '3',
       icon: () => lucide('power'),
       onClick: () => this.togglePower(),
     });
@@ -222,14 +212,17 @@ export class App {
       panelId: 'settings',
       label: 'Settings',
       position: 'bottom',
-      hotkey: '5',
+      hotkey: '4',
       icon: () => lucide('settings'),
     });
 
     mountLucideIcons();
 
-    // Open the ROMs panel on first load — user lands on something useful.
-    this.stack.openL2('roms');
+    // Open Consoles on first load, with the active console's ROM bay beside it.
+    this.stack.openL2('consoles');
+    this.stack.openL3('roms');
+    this.romsOpenConsoleId = initialSpec.id;
+    this.consolesPanel.setRomsOpen(initialSpec.id);
     this.sidebar.syncActive();
 
     this.keyboard.attach();
@@ -239,8 +232,12 @@ export class App {
     layoutMain.addEventListener('click', () => {
       if (this.stack.activeL3()) {
         this.stack.closeL3();
+        this.romsOpenConsoleId = null;
+        this.consolesPanel.setRomsOpen(null);
       } else if (this.stack.activeL2()) {
         this.stack.closeAll();
+        this.romsOpenConsoleId = null;
+        this.consolesPanel.setRomsOpen(null);
         this.sidebar.syncActive();
       }
     });
@@ -363,10 +360,30 @@ export class App {
     this.renderer.setPipeline(this.buildPipeline());
 
     this.sidebar.setTooltip('consoles', this.consoleLabelFromId(spec.id));
-    this.sidebar.setTooltip('roms', `${spec.name} ROMs`);
     this.settingsPanel.setConsoleId(spec.id);
     this.romsPanel.setConsoleId(spec.id, spec.name);
+    if (this.stack.activeL3() === 'roms') {
+      this.romsOpenConsoleId = spec.id;
+      this.consolesPanel.setRomsOpen(spec.id);
+    }
     this.setStatus(`${spec.name} selected.`);
+  }
+
+  private toggleConsoleRoms(spec: ConsoleSpec): void {
+    const shouldClose = this.stack.activeL3() === 'roms' && this.romsOpenConsoleId === spec.id;
+    if (this.config.get().general.selectedConsoleId !== spec.id) {
+      this.consolesPanel.setSelected(spec.id);
+      this.selectConsole(spec);
+    }
+    if (shouldClose) {
+      this.stack.closeL3();
+      this.romsOpenConsoleId = null;
+      this.consolesPanel.setRomsOpen(null);
+      return;
+    }
+    this.stack.openL3('roms');
+    this.romsOpenConsoleId = spec.id;
+    this.consolesPanel.setRomsOpen(spec.id);
   }
 
   private consoleLabelFromId(id: string): string {
