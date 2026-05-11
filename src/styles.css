@@ -386,7 +386,7 @@ select:focus-visible {
 
 .rom-drop-zone {
   width: 100%;
-  min-height: 124px;
+  height: 124px;
   border: 1px dashed var(--line);
   background: var(--bg);
   color: var(--fg-soft);
@@ -398,17 +398,39 @@ select:focus-visible {
   padding: 14px;
   text-align: center;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
+  cursor: pointer;
 }
 .rom-drop-zone svg {
   width: 26px;
   height: 26px;
   color: var(--accent-soft);
+  flex-shrink: 0;
+}
+.rom-drop-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.rom-drop-copy[hidden] {
+  display: none;
+}
+.rom-drop-copy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .rom-drop-zone small {
   display: block;
-  color: var(--fg-dim);
-  font-size: 10px;
+  color: var(--fg-soft);
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.rom-drop-zone small strong {
+  color: var(--fg);
+  font-weight: 700;
 }
 .rom-drop-zone:hover,
 .rom-drop-zone.drag-over {
@@ -416,18 +438,29 @@ select:focus-visible {
   border-style: solid;
   color: var(--fg);
 }
+.rom-drop-zone.has-file {
+  border-style: solid;
+}
 
 .rom-picked,
 .convert-attached-row {
   margin: 0;
-  border: 1px solid var(--line);
-  background: var(--bg);
-  padding: 7px 8px;
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
   font-family: var(--font-mono);
+}
+.rom-picked {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--bg-deep);
+  padding: 7px 8px;
+}
+.convert-attached-row {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  padding: 7px 8px;
 }
 .rom-picked[hidden],
 .convert-attached-row[hidden] {
@@ -447,6 +480,27 @@ select:focus-visible {
   font-size: 10px;
   color: var(--fg-dim);
   flex-shrink: 0;
+}
+.rom-picked-remove {
+  width: 22px;
+  height: 22px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+.rom-picked-remove svg {
+  width: 13px;
+  height: 13px;
+  color: currentColor;
+}
+.rom-picked-remove:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .rom-convert-notice {

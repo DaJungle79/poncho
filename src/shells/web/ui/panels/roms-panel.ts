@@ -79,10 +79,13 @@ export class RomsPanel implements Panel {
   private readonly serverSection: HTMLElement;
   private readonly btnAdd: HTMLButtonElement;
   private readonly btnBack: HTMLButtonElement;
-  private readonly dropZone: HTMLButtonElement;
+  private readonly dropZone: HTMLElement;
+  private readonly dropCopy: HTMLElement;
   private readonly acceptHint: HTMLElement;
+  private readonly pickedBox: HTMLElement;
   private readonly pickedNameEl: HTMLElement;
   private readonly pickedMetaEl: HTMLElement;
+  private readonly removePickedBtn: HTMLButtonElement;
   private readonly convertNotice: HTMLElement;
   private readonly aiToggle: HTMLElement;
   private readonly aiCheckbox: HTMLInputElement;
@@ -132,15 +135,19 @@ export class RomsPanel implements Panel {
             <h3>Add new ROM</h3>
           </div>
 
-          <button type="button" class="rom-drop-zone" data-drop-zone>
+          <div class="rom-drop-zone" data-drop-zone role="button" tabindex="0">
             <i data-lucide="file-plus-2"></i>
-            <span>Drop a file or click to pick</span>
-            <small data-accept-hint>Accepts .nes</small>
-          </button>
-
-          <div class="rom-picked" data-picked hidden>
-            <span class="rom-picked-name" data-picked-name></span>
-            <span class="rom-picked-meta" data-picked-meta></span>
+            <div class="rom-drop-copy" data-drop-copy>
+              <span>Drop a file or click to pick</span>
+              <small data-accept-hint>Accepts <strong>.nes</strong></small>
+            </div>
+            <div class="rom-picked" data-picked hidden>
+              <span class="rom-picked-name" data-picked-name></span>
+              <span class="rom-picked-meta" data-picked-meta></span>
+              <button type="button" class="rom-picked-remove" data-picked-remove title="Remove file" aria-label="Remove file">
+                <i data-lucide="x"></i>
+              </button>
+            </div>
           </div>
 
           <p class="settings-hint rom-convert-notice" data-convert-notice hidden>
@@ -188,10 +195,13 @@ export class RomsPanel implements Panel {
     this.serverSection = this.root.querySelector<HTMLElement>('[data-server-section]')!;
     this.btnAdd = this.root.querySelector<HTMLButtonElement>('[data-add-toggle]')!;
     this.btnBack = this.root.querySelector<HTMLButtonElement>('[data-add-back]')!;
-    this.dropZone = this.root.querySelector<HTMLButtonElement>('[data-drop-zone]')!;
+    this.dropZone = this.root.querySelector<HTMLElement>('[data-drop-zone]')!;
+    this.dropCopy = this.root.querySelector<HTMLElement>('[data-drop-copy]')!;
     this.acceptHint = this.root.querySelector<HTMLElement>('[data-accept-hint]')!;
+    this.pickedBox = this.root.querySelector<HTMLElement>('[data-picked]')!;
     this.pickedNameEl = this.root.querySelector<HTMLElement>('[data-picked-name]')!;
     this.pickedMetaEl = this.root.querySelector<HTMLElement>('[data-picked-meta]')!;
+    this.removePickedBtn = this.root.querySelector<HTMLButtonElement>('[data-picked-remove]')!;
     this.convertNotice = this.root.querySelector<HTMLElement>('[data-convert-notice]')!;
     this.aiToggle = this.root.querySelector<HTMLElement>('[data-ai-toggle]')!;
     this.aiCheckbox = this.root.querySelector<HTMLInputElement>('[data-ai-checkbox]')!;
@@ -224,7 +234,7 @@ export class RomsPanel implements Panel {
   setConsoleId(consoleId: string, consoleName: string): void {
     this.target = makeRomTarget(consoleId, consoleName);
     this.panelTitle.textContent = `${consoleName} ROMs`;
-    this.acceptHint.textContent = `Accepts ${this.target.uploadExtensions.join(', ')}`;
+    this.acceptHint.innerHTML = renderAcceptHint(this.target.uploadExtensions);
     this.clearPicked();
     void this.refreshBrowserList();
     void this.refreshServerList();
@@ -401,10 +411,21 @@ export class RomsPanel implements Panel {
     this.btnAdd.addEventListener('click', () => this.toggleAddView());
     this.btnBack.addEventListener('click', () => this.closeAddView());
     this.dropZone.addEventListener('click', () => { void this.pickRomFile(); });
+    this.dropZone.addEventListener('keydown', (event) => {
+      if (event.target !== this.dropZone) return;
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      void this.pickRomFile();
+    });
     this.dropZone.addEventListener('dragenter', (event) => this.handleDrag(event));
     this.dropZone.addEventListener('dragover', (event) => this.handleDrag(event));
     this.dropZone.addEventListener('dragleave', () => this.dropZone.classList.remove('drag-over'));
     this.dropZone.addEventListener('drop', (event) => { void this.handleDrop(event); });
+    this.removePickedBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.clearPicked();
+      this.setUploadStatus('File removed.');
+    });
     this.aiCheckbox.addEventListener('change', () => this.syncAiOptions());
     this.attachBtn.addEventListener('click', () => { void this.handleAttachModel(); });
     this.detachBtn.addEventListener('click', () => this.detachModel());
@@ -468,9 +489,10 @@ export class RomsPanel implements Panel {
   }
 
   private syncPicked(): void {
-    const pickedBox = this.root.querySelector<HTMLElement>('[data-picked]')!;
     const picked = this.picked;
-    pickedBox.hidden = !picked;
+    this.pickedBox.hidden = !picked;
+    this.dropCopy.hidden = !!picked;
+    this.dropZone.classList.toggle('has-file', !!picked);
     this.pickedNameEl.textContent = picked?.name ?? '';
     this.pickedMetaEl.textContent = picked ? formatSize(picked.data.length) : '';
 
@@ -688,6 +710,10 @@ function hasAnyExtension(name: string, extensions: readonly string[]): boolean {
 
 function replaceExtension(name: string, ext: string): string {
   return name.replace(/\.[^.]+$/i, '') + ext;
+}
+
+function renderAcceptHint(extensions: readonly string[]): string {
+  return `Accepts ${extensions.map((ext) => `<strong>${ext}</strong>`).join(', ')}`;
 }
 
 function formatSize(bytes: number): string {
