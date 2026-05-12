@@ -922,6 +922,12 @@ select:focus-visible {
 }
 .settings-row:last-child { border-bottom: 0; }
 
+.settings-console-group {
+  order: 1;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
 .settings-row select,
 .settings-row input[type="range"] {
   background: var(--bg-deep);

@@ -10,6 +10,7 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 ### Changed - UI/UX ROM add flow
 
 - **Settings moved up the sidebar** - the Settings icon now sits directly below Consoles instead of at the bottom of the menu, making configuration easier to find.
+- **Settings global/per-console separation** - Settings now keeps global Appearance and Audio first, then separates console-specific Video with a divider and title-matched spacing.
 - **Sidebar shortcuts remapped** - Consoles now opens with `` ` ``, Input - Player 1 with `1`, Input - Player 2 with `2`, Settings with `0`, and Pause with `PauseBreak`. Reset and Off / Eject no longer have keyboard shortcuts.
 - **Sidebar shortcut hints softened** - menu tooltips now show shortcuts in subtle square-bracket hints, keeping the main label more readable.
 - **Per-player Input panels** - Input is now split into top-level Input - Player 1 and Input - Player 2 sidebar items with P1/P2 icon badges. Each panel combines an Input type dropdown with that player's keyboard mappings, and the web shell now wires both NES controller ports.

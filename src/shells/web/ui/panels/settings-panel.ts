@@ -57,7 +57,19 @@ export class SettingsPanel implements Panel {
           </label>
         </section>
 
-        <section class="settings-group" data-overscan-section>
+        <section class="settings-group">
+          <h3><i data-lucide="volume-2"></i><span>Audio</span></h3>
+          <label class="settings-row">
+            <span>Volume</span>
+            <input type="range" min="0" max="100" data-volume />
+          </label>
+          <label class="settings-row">
+            <span>Mute</span>
+            <input type="checkbox" data-mute />
+          </label>
+        </section>
+
+        <section class="settings-group settings-console-group" data-overscan-section>
           <h3><i data-lucide="monitor"></i><span>Video</span></h3>
           <div data-video-content>
           <label class="settings-row">
@@ -110,18 +122,6 @@ export class SettingsPanel implements Panel {
           <p class="settings-hint" data-video-unavailable hidden>
             Video settings are not available for selected console.
           </p>
-        </section>
-
-        <section class="settings-group">
-          <h3><i data-lucide="volume-2"></i><span>Audio</span></h3>
-          <label class="settings-row">
-            <span>Volume</span>
-            <input type="range" min="0" max="100" data-volume />
-          </label>
-          <label class="settings-row">
-            <span>Mute</span>
-            <input type="checkbox" data-mute />
-          </label>
         </section>
       </div>
     `;
