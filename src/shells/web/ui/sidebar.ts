@@ -22,6 +22,8 @@ interface SidebarItemBase {
   icon: () => Element;
   /** Optional keyboard shortcut (e.g. "1", "p"). Shown in tooltip. */
   hotkey?: string;
+  /** Adds one button-height gap before this item. */
+  separated?: boolean;
 }
 
 export type SidebarItem =
@@ -64,6 +66,7 @@ export class Sidebar {
   add(item: SidebarItem): void {
     const button = document.createElement('button');
     button.className = 'sidebar-btn';
+    if (item.separated) button.classList.add('sidebar-btn-separated');
     button.type = 'button';
     const tooltip = item.hotkey ? `${item.label} (${item.hotkey})` : item.label;
     // dataset.tooltip drives the CSS tooltip; aria-label keeps it accessible.

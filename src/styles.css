@@ -199,6 +199,7 @@ select:focus-visible {
   position: relative;
   transition: color 80ms steps(4, end);
 }
+.sidebar-btn-separated { margin-top: 40px; }
 .sidebar-btn:hover {
   color: var(--fg);
   background: rgba(255, 255, 255, 0.04);

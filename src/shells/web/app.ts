@@ -223,6 +223,7 @@ export class App {
       label: 'Pause',
       position: 'top',
       hotkey: '1',
+      separated: true,
       icon: () => lucide('pause'),
       onClick: () => this.togglePause(),
     });
