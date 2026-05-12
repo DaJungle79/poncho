@@ -192,7 +192,7 @@ export class App {
       panelId: 'consoles',
       label: this.consoleLabelFromId(this.config.get().general.selectedConsoleId),
       position: 'top',
-      hotkey: '0',
+      hotkey: '`',
       icon: () => lucide('cpu'),
     });
     this.sidebar.add({
@@ -200,7 +200,7 @@ export class App {
       panelId: 'input-p1',
       label: 'Input - Player 1',
       position: 'top',
-      hotkey: '4',
+      hotkey: '1',
       icon: () => playerInputIcon(1),
     });
     this.sidebar.add({
@@ -208,7 +208,7 @@ export class App {
       panelId: 'input-p2',
       label: 'Input - Player 2',
       position: 'top',
-      hotkey: '5',
+      hotkey: '2',
       icon: () => playerInputIcon(2),
     });
     this.sidebar.add({
@@ -216,14 +216,14 @@ export class App {
       panelId: 'settings',
       label: 'Settings',
       position: 'top',
-      hotkey: '6',
+      hotkey: '0',
       icon: () => lucide('settings'),
     });
     this.sidebar.add({
       id: 'pause',
       label: 'Pause',
       position: 'top',
-      hotkey: '1',
+      hotkey: 'PauseBreak',
       separated: true,
       icon: () => lucide('pause'),
       onClick: () => this.togglePause(),
@@ -232,7 +232,6 @@ export class App {
       id: 'reset',
       label: 'Reset',
       position: 'top',
-      hotkey: '2',
       icon: () => lucide('rotate-ccw'),
       onClick: () => this.resetEmu(),
     });
@@ -240,7 +239,6 @@ export class App {
       id: 'off',
       label: 'Off / Eject',
       position: 'top',
-      hotkey: '3',
       icon: () => lucide('power'),
       onClick: () => this.togglePower(),
     });

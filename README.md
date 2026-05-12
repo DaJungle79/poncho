@@ -117,7 +117,7 @@ Rebind any binding from the sidebar **Input - Player 1** or **Input - Player 2**
 
 ## Virtual consoles
 
-Poncho hosts more than one virtual console under one runtime. Each is a *composition* of chips from `src/core/` (CPU, PPU, APU, buses, mappers) wired together. Pick the active console from the sidebar (top icon, hotkey `0`), then use the console card's **ROMs** button to load cartridges for that console.
+Poncho hosts more than one virtual console under one runtime. Each is a *composition* of chips from `src/core/` (CPU, PPU, APU, buses, mappers) wired together. Pick the active console from the sidebar (top icon, hotkey `` ` ``), then use the console card's **ROMs** button to load cartridges for that console.
 
 | | NES (working) | Poncho-NES (beta) |
 |---|---|---|

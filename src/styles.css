@@ -248,6 +248,7 @@ select:focus-visible {
   transform: translateY(-50%);
 }
 .sidebar-tooltip.visible { opacity: 1; }
+.sidebar-tooltip-shortcut { color: var(--fg-dim); }
 
 /* ----- Panels ----------------------------------------------------------- */
 
