@@ -56,6 +56,7 @@ Open <http://localhost:5173>. The **Consoles** panel opens first. Use the **ROMs
 - **Console-aware settings** — Video controls are separated below global settings and explain when the selected console does not support them
 - **Optional floating FPS readout** — shown at the top-right of the workspace and toggled from Settings → Appearance
 - **Readable workspace notifications** — status messages appear at the bottom-right, replace one another, and dismiss automatically after enough reading time
+- **Stateful pause control** — the sidebar Pause action highlights while paused and changes to Play for resume
 - **Top-level input setup** — open Input - Player 1 or Input - Player 2 from the sidebar to choose input type and edit mappings
 - **Adjustable scale** (1×, 2×, 4× nearest-neighbour) and audio volume
 

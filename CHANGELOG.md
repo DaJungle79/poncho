@@ -13,6 +13,7 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 - **Settings global/per-console separation** - Settings now keeps global Appearance and Audio first, then separates console-specific Video with a divider and title-matched spacing.
 - **Floating FPS readout** - the FPS indicator now sits independently at the top-right of the workspace with an Appearance setting to show or hide it.
 - **Workspace notifications** - status messages now appear as one-at-a-time bottom-right notifications, stay visible based on message length plus a reading buffer, fade out, and dismiss immediately on click.
+- **Stateful Pause control** - the Pause sidebar action now uses the selected-menu background while paused and switches to a Play icon/Resume tooltip.
 - **Sidebar shortcuts remapped** - Consoles now opens with `` ` ``, Input - Player 1 with `1`, Input - Player 2 with `2`, Settings with `0`, and Pause with `PauseBreak`. Reset and Off / Eject no longer have keyboard shortcuts.
 - **Sidebar shortcut hints softened** - menu tooltips now show shortcuts in subtle square-bracket hints, keeping the main label more readable.
 - **Per-player Input panels** - Input is now split into top-level Input - Player 1 and Input - Player 2 sidebar items with P1/P2 icon badges. Each panel combines an Input type dropdown with that player's keyboard mappings, and the web shell now wires both NES controller ports.

@@ -257,6 +257,7 @@ export class App {
     // Open Consoles on first load; the ROM bay opens when the user clicks ROMs.
     this.stack.openL2('consoles');
     this.sidebar.syncActive();
+    this.updatePauseControl();
 
     this.keyboard1.attach();
     this.keyboard2.attach();
@@ -314,6 +315,7 @@ export class App {
       this.maybeStartAiWorker(rom);
       this.powered = true;
       this.paused = false;
+      this.updatePauseControl();
       this.config.update((c) => ({ ...c, general: { ...c.general, lastRomUrl: rom.source } }));
       this.setStatus(
         `Loaded ${rom.name} · mapper ${this.nes.cartridge?.mapper.id} (${this.nes.cartridge?.mapper.name})`,
@@ -346,6 +348,7 @@ export class App {
       this.nes.reset();
       this.powered = true;
       this.paused = false;
+      this.updatePauseControl();
       void this.platform.audio.start().then(() =>
         this.nes.apu.setSampleRate(this.platform.audio.sampleRate),
       );
@@ -353,6 +356,8 @@ export class App {
       this.powered = false;
       void this.teardownAiWorker();
       this.nes.unload();
+      this.paused = false;
+      this.updatePauseControl();
       void this.platform.audio.stop();
       this.setStatus('Powered off.');
       this.setGameTitle(null);
@@ -365,6 +370,7 @@ export class App {
 
   private togglePause(): void {
     this.paused = !this.paused;
+    this.updatePauseControl();
   }
 
   /**
@@ -397,6 +403,13 @@ export class App {
       this.consolesPanel.setRomsOpen(spec.id);
     }
     this.setStatus(`${spec.name} selected.`);
+  }
+
+  private updatePauseControl(): void {
+    this.sidebar.setActive('pause', this.paused);
+    this.sidebar.setIcon('pause', lucide(this.paused ? 'play' : 'pause'));
+    this.sidebar.setTooltip('pause', this.paused ? 'Resume' : 'Pause');
+    mountLucideIcons();
   }
 
   private updateKeyboardBindings(player: 1 | 2, bindings: KeyBindings): void {

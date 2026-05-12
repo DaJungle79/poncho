@@ -111,12 +111,26 @@ export class Sidebar {
     }
   }
 
+  setActive(id: string, active: boolean): void {
+    const button = this.buttons.get(id);
+    if (!button || button.dataset.panel) return;
+    button.classList.toggle('active', active);
+  }
+
+  setIcon(id: string, icon: Element): void {
+    const button = this.buttons.get(id);
+    if (!button) return;
+    button.replaceChildren(icon);
+  }
+
   /** Reflect the stack's current selection in the visible "active" state. */
   syncActive(): void {
     const active = this.stack.activeL2();
     for (const btn of this.buttons.values()) {
       const panelId = btn.dataset.panel;
-      btn.classList.toggle('active', panelId !== undefined && panelId === active);
+      if (panelId !== undefined) {
+        btn.classList.toggle('active', panelId === active);
+      }
     }
   }
 
