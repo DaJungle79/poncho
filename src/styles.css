@@ -1139,6 +1139,21 @@ select:focus-visible {
 }
 html[data-status-bar='hidden'] .layout-main { padding-bottom: 20px; }
 
+.fps-panel {
+  position: absolute;
+  top: 14px;
+  right: 20px;
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  color: var(--accent-soft);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
+  z-index: 4;
+}
+
 /*
  * Title bar above the canvas. Vertical stack: the Poncho brand on top
  * is always visible; the game title appears underneath when a ROM is
@@ -1258,7 +1273,7 @@ html[data-status-bar='hidden'] .layout-main { padding-bottom: 20px; }
   right: 0;
   bottom: 0;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   padding: 3px 10px;
   background: var(--bg-raised);
@@ -1269,9 +1284,9 @@ html[data-status-bar='hidden'] .layout-main { padding-bottom: 20px; }
   color: var(--fg-soft);
   z-index: 7;
 }
-.fps { color: var(--accent-soft); font-variant-numeric: tabular-nums; }
 .status-text { word-break: break-word; }
 
 /* Toggled via Settings → Appearance. Driven by the data attribute on
    <html>; applying to .status-bar (not html) keeps it animatable later. */
 html[data-status-bar='hidden'] .status-bar { display: none; }
+html[data-fps='hidden'] .fps-panel { display: none; }

@@ -11,7 +11,7 @@ export interface SettingsPanelDeps {
 
 /**
  * Slide-out settings menu. Holds:
- *   - Appearance: light / dark theme
+ *   - Appearance: light / dark theme, status bar, FPS overlay
  *   - Video: scale selector (1x / 2x / 4x)
  *   - Audio: volume slider + mute toggle
  */
@@ -32,6 +32,7 @@ export class SettingsPanel implements Panel {
   private readonly volumeRange: HTMLInputElement;
   private readonly muteCheckbox: HTMLInputElement;
   private readonly statusBarCheckbox: HTMLInputElement;
+  private readonly fpsCheckbox: HTMLInputElement;
 
   constructor(private readonly deps: SettingsPanelDeps) {
     this.root = document.createElement('section');
@@ -54,6 +55,10 @@ export class SettingsPanel implements Panel {
           <label class="settings-row">
             <span>Status bar</span>
             <input type="checkbox" data-status-bar />
+          </label>
+          <label class="settings-row">
+            <span>Show FPS</span>
+            <input type="checkbox" data-fps />
           </label>
         </section>
 
@@ -139,6 +144,7 @@ export class SettingsPanel implements Panel {
     this.volumeRange = this.root.querySelector<HTMLInputElement>('[data-volume]')!;
     this.muteCheckbox = this.root.querySelector<HTMLInputElement>('[data-mute]')!;
     this.statusBarCheckbox = this.root.querySelector<HTMLInputElement>('[data-status-bar]')!;
+    this.fpsCheckbox = this.root.querySelector<HTMLInputElement>('[data-fps]')!;
 
     this.bindEvents();
   }
@@ -151,6 +157,7 @@ export class SettingsPanel implements Panel {
     this.volumeRange.value = String(Math.round(cfg.audio.volume * 100));
     this.muteCheckbox.checked = cfg.audio.muted;
     this.statusBarCheckbox.checked = cfg.general.showStatusBar;
+    this.fpsCheckbox.checked = cfg.general.showFps;
     this.syncOverscanUI(cfg);
     this.applyScalerAvailability(cfg.general.selectedConsoleId);
   }
@@ -280,6 +287,14 @@ export class SettingsPanel implements Panel {
       const cfg = this.deps.config.update((c) => ({
         ...c,
         general: { ...c.general, showStatusBar: this.statusBarCheckbox.checked },
+      }));
+      this.deps.onConfigChanged(cfg);
+    });
+
+    this.fpsCheckbox.addEventListener('change', () => {
+      const cfg = this.deps.config.update((c) => ({
+        ...c,
+        general: { ...c.general, showFps: this.fpsCheckbox.checked },
       }));
       this.deps.onConfigChanged(cfg);
     });

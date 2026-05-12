@@ -51,7 +51,7 @@ export interface AppDom {
   panelL3Host: HTMLElement;
   canvas: HTMLCanvasElement;
   statusEl: HTMLSpanElement;
-  fpsEl: HTMLSpanElement;
+  fpsEl: HTMLDivElement;
   gameTitleEl: HTMLDivElement;
 }
 
@@ -111,6 +111,7 @@ export class App {
     this.config = new ConfigStore(platform.configStorage);
     this.applyTheme(this.config.get().general.theme);
     this.applyStatusBar(this.config.get().general.showStatusBar);
+    this.applyFps(this.config.get().general.showFps);
 
     // ----- Emulator + renderer ------------------------------------------
     this.activeConsoleId = this.config.get().general.selectedConsoleId;
@@ -166,6 +167,7 @@ export class App {
         this.platform.audio.setMuted(cfg.audio.muted);
         this.applyTheme(cfg.general.theme);
         this.applyStatusBar(cfg.general.showStatusBar);
+        this.applyFps(cfg.general.showFps);
       },
     });
     this.stack.registerL2(this.settingsPanel);
@@ -477,6 +479,10 @@ export class App {
 
   private applyStatusBar(visible: boolean): void {
     document.documentElement.dataset.statusBar = visible ? 'visible' : 'hidden';
+  }
+
+  private applyFps(visible: boolean): void {
+    document.documentElement.dataset.fps = visible ? 'visible' : 'hidden';
   }
 
   // ----- AI upscale worker lifecycle ----------------------------------------

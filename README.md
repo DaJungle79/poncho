@@ -54,6 +54,7 @@ Open <http://localhost:5173>. The **Consoles** panel opens first. Use the **ROMs
 - **Retro NES aesthetic** 
 - **Light + dark themes** — switchable from the Settings icon in the sidebar, persisted across reloads
 - **Console-aware settings** — Video controls are separated below global settings and explain when the selected console does not support them
+- **Optional floating FPS readout** — shown at the top-right of the workspace and toggled from Settings → Appearance
 - **Top-level input setup** — open Input - Player 1 or Input - Player 2 from the sidebar to choose input type and edit mappings
 - **Adjustable scale** (1×, 2×, 4× nearest-neighbour) and audio volume
 

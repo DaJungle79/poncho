@@ -45,6 +45,7 @@ export const DEFAULT_CONFIG: Config = {
     lastRomUrl: null,
     theme: 'dark',
     showStatusBar: true,
+    showFps: true,
     selectedConsoleId: 'nes',
   },
   ai: {
