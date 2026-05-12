@@ -11,6 +11,8 @@ export interface ConsolesPanelDeps {
   onSelect: (spec: ConsoleSpec) => void;
   /** Called when the user opens/closes the ROM bay for a console. */
   onToggleRoms: (spec: ConsoleSpec) => void;
+  /** Called when the Consoles panel becomes visible again. */
+  onShow?: () => void;
 }
 
 /**
@@ -97,6 +99,10 @@ export class ConsolesPanel implements Panel {
 
   onHide(): void {
     this.setRomsOpen(null);
+  }
+
+  onShow(): void {
+    this.deps.onShow?.();
   }
 
   /** Update the panel's visible-selection without firing onSelect. */

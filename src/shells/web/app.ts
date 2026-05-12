@@ -135,6 +135,7 @@ export class App {
       initialSelectedId: this.config.get().general.selectedConsoleId,
       onSelect: (spec) => this.selectConsole(spec),
       onToggleRoms: (spec) => this.toggleConsoleRoms(spec),
+      onShow: () => this.restoreConsoleRoms(),
     });
     this.stack.registerL2(this.consolesPanel);
 
@@ -256,13 +257,8 @@ export class App {
     // ----- Click-outside dismissal of L2/L3 ------------------------------
     const layoutMain = document.querySelector<HTMLElement>('.layout-main')!;
     layoutMain.addEventListener('click', () => {
-      if (this.stack.activeL3()) {
-        this.stack.closeL3();
-        this.romsOpenConsoleId = null;
-        this.consolesPanel.setRomsOpen(null);
-      } else if (this.stack.activeL2()) {
+      if (this.stack.activeL2()) {
         this.stack.closeAll();
-        this.romsOpenConsoleId = null;
         this.consolesPanel.setRomsOpen(null);
         this.sidebar.syncActive();
       }
@@ -414,6 +410,24 @@ export class App {
     }
     this.stack.openL3('roms');
     this.romsOpenConsoleId = spec.id;
+    this.consolesPanel.setRomsOpen(spec.id);
+  }
+
+  private restoreConsoleRoms(): void {
+    if (!this.romsOpenConsoleId) {
+      this.consolesPanel.setRomsOpen(null);
+      return;
+    }
+
+    const spec = ALL_SPECS.find((candidate) => candidate.id === this.romsOpenConsoleId);
+    if (!spec) {
+      this.romsOpenConsoleId = null;
+      this.consolesPanel.setRomsOpen(null);
+      return;
+    }
+
+    this.romsPanel.setConsoleId(spec.id, spec.name);
+    this.stack.openL3('roms');
     this.consolesPanel.setRomsOpen(spec.id);
   }
 

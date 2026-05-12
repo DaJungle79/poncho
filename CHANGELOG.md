@@ -14,6 +14,7 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 - **Two-player default mappings** - Player 1 defaults to arrow keys plus `/`, `.`, `[`, `]`; Player 2 defaults to WASD plus `B`, `V`, `Z`, `X`.
 - **Settings Video availability clarified** - when Poncho-NES is selected, the Video section now remains visible and shows an unavailable-state hint instead of disappearing.
 - **ROMs move under Consoles** - the standalone ROMs sidebar item is gone. The app now opens on Consoles, and each console card has a selected-state ROMs button to show/hide that console's adjacent ROM bay.
+- **ROMs bay state is preserved while hidden** - the ROMs bay stays closed on first load, but once opened it returns with Consoles after dismissing the menu. Clicking outside the menu closes Consoles and ROMs together.
 - **ROM storage labels aligned** - ROM lists now use `Local storage` and `Server storage`, with consistent empty-state text.
 - **Cartridge icon for ROMs** - the console card ROMs button now uses a cartridge-shaped SVG instead of the old cassette icon.
 - **ROMs panel Add ROM subview** - the old inline Upload / Convert buttons are replaced by one stable `Add ROM` action at the top of the ROMs panel. It toggles a darker local `Add new ROM` subview with a drag-and-drop zone, click-to-pick fallback, selected-file summary, and Esc-to-close behavior.
