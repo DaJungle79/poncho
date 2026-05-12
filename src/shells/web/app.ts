@@ -50,7 +50,7 @@ export interface AppDom {
   panelL2Host: HTMLElement;
   panelL3Host: HTMLElement;
   canvas: HTMLCanvasElement;
-  statusEl: HTMLSpanElement;
+  statusEl: HTMLButtonElement;
   fpsEl: HTMLDivElement;
   gameTitleEl: HTMLDivElement;
 }
@@ -80,6 +80,8 @@ export class App {
   private lastFrameTs = 0;
   private fpsAccum = 0;
   private fpsFrames = 0;
+  private statusHideTimer: ReturnType<typeof setTimeout> | null = null;
+  private statusFadeTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly audioBuffer = new Float32Array(2048);
 
   // ----- DOM refs ---------------------------------------------------------
@@ -110,7 +112,6 @@ export class App {
     // ----- Config (with theme applied to <html>) -------------------------
     this.config = new ConfigStore(platform.configStorage);
     this.applyTheme(this.config.get().general.theme);
-    this.applyStatusBar(this.config.get().general.showStatusBar);
     this.applyFps(this.config.get().general.showFps);
 
     // ----- Emulator + renderer ------------------------------------------
@@ -166,7 +167,6 @@ export class App {
         this.platform.audio.setVolume(cfg.audio.volume);
         this.platform.audio.setMuted(cfg.audio.muted);
         this.applyTheme(cfg.general.theme);
-        this.applyStatusBar(cfg.general.showStatusBar);
         this.applyFps(cfg.general.showFps);
       },
     });
@@ -246,6 +246,13 @@ export class App {
     });
 
     mountLucideIcons();
+    dom.statusEl.addEventListener('click', () => this.hideStatus(false));
+    dom.statusEl.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        this.hideStatus(false);
+      }
+    });
 
     // Open Consoles on first load; the ROM bay opens when the user clicks ROMs.
     this.stack.openL2('consoles');
@@ -437,7 +444,14 @@ export class App {
   }
 
   private setStatus(text: string): void {
+    if (this.statusHideTimer) clearTimeout(this.statusHideTimer);
+    if (this.statusFadeTimer) clearTimeout(this.statusFadeTimer);
     this.dom.statusEl.textContent = text;
+    this.dom.statusEl.hidden = false;
+    this.dom.statusEl.classList.remove('status-notification-fade');
+
+    const visibleMs = Math.max(5_000, (text.length / 20) * 1_000 + 5_000);
+    this.statusHideTimer = setTimeout(() => this.hideStatus(true), visibleMs);
   }
 
   /** Toggle the game title block visibility + retrigger the slide-in animation. */
@@ -477,12 +491,33 @@ export class App {
     if (logo) logo.src = theme === 'dark' ? logoDark : logoLight;
   }
 
-  private applyStatusBar(visible: boolean): void {
-    document.documentElement.dataset.statusBar = visible ? 'visible' : 'hidden';
-  }
-
   private applyFps(visible: boolean): void {
     document.documentElement.dataset.fps = visible ? 'visible' : 'hidden';
+  }
+
+  private hideStatus(animated: boolean): void {
+    if (this.statusHideTimer) {
+      clearTimeout(this.statusHideTimer);
+      this.statusHideTimer = null;
+    }
+    if (this.statusFadeTimer) {
+      clearTimeout(this.statusFadeTimer);
+      this.statusFadeTimer = null;
+    }
+
+    if (this.dom.statusEl.hidden) return;
+    if (!animated) {
+      this.dom.statusEl.hidden = true;
+      this.dom.statusEl.classList.remove('status-notification-fade');
+      return;
+    }
+
+    this.dom.statusEl.classList.add('status-notification-fade');
+    this.statusFadeTimer = setTimeout(() => {
+      this.dom.statusEl.hidden = true;
+      this.dom.statusEl.classList.remove('status-notification-fade');
+      this.statusFadeTimer = null;
+    }, 220);
   }
 
   // ----- AI upscale worker lifecycle ----------------------------------------

@@ -50,7 +50,7 @@ export interface ConvertPanelDeps {
   getModelConfig: (modelId: string) => UpscaleModelConfig;
   /** Platform-level loader hooks so model assets cache across reloads. */
   getUpscaleContext: () => UpscaleModelContext | undefined;
-  /** Bottom-status-bar callback — borrowed from RomsPanel. */
+  /** Workspace notification callback - borrowed from RomsPanel. */
   onStatus?: (text: string) => void;
   /** Fires after a successful save so RomsPanel can refresh its list. */
   onConverted?: () => void | Promise<void>;

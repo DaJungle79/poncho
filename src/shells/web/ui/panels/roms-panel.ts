@@ -30,7 +30,7 @@ export interface RomsPanelDeps {
   filePicker: FilePicker;
   /** Called when a ROM has been loaded successfully. */
   onLoaded: (rom: LoadedRom) => void | Promise<void>;
-  /** Optional callback for transient status messages (routed to the bottom status bar). */
+  /** Optional callback for transient workspace notifications. */
   onStatus?: (text: string) => void;
   /** Platform-level loader hooks so model assets cache across reloads. */
   getUpscaleContext?: () => UpscaleModelContext | undefined;

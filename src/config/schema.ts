@@ -40,7 +40,6 @@ export type ThemeId = 'dark' | 'light';
 export interface GeneralConfig {
   lastRomUrl: string | null;
   theme: ThemeId;
-  showStatusBar: boolean;
   showFps: boolean;
   /** Active virtual console (id from `src/console/specs.ts`). */
   selectedConsoleId: string;
