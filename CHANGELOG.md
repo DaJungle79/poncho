@@ -10,7 +10,8 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 ### Changed - UI/UX ROM add flow
 
 - **Settings moved up the sidebar** - the Settings icon now sits directly below Consoles instead of at the bottom of the menu, making configuration easier to find.
-- **Input promoted to sidebar** - Input is now a top-level sidebar item directly between Consoles and Settings instead of being nested inside Settings. The panel combines an Input type dropdown with Player 1 mappings.
+- **Per-player Input panels** - Input is now split into top-level Input - Player 1 and Input - Player 2 sidebar items with P1/P2 icon badges. Each panel combines an Input type dropdown with that player's keyboard mappings, and the web shell now wires both NES controller ports.
+- **Two-player default mappings** - Player 1 defaults to arrow keys plus `/`, `.`, `[`, `]`; Player 2 defaults to WASD plus `B`, `V`, `Z`, `X`.
 - **Settings Video availability clarified** - when Poncho-NES is selected, the Video section now remains visible and shows an unavailable-state hint instead of disappearing.
 - **ROMs move under Consoles** - the standalone ROMs sidebar item is gone. The app now opens on Consoles, and each console card has a selected-state ROMs button to show/hide that console's adjacent ROM bay.
 - **ROM storage labels aligned** - ROM lists now use `Local storage` and `Server storage`, with consistent empty-state text.

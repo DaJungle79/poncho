@@ -54,7 +54,7 @@ Open <http://localhost:5173>. The **Consoles** panel opens first. Use the **ROMs
 - **Retro NES aesthetic** 
 - **Light + dark themes** — switchable from the Settings icon in the sidebar, persisted across reloads
 - **Console-aware settings** — Video controls stay visible as a section and explain when the selected console does not support them
-- **Top-level input setup** — open Input from the sidebar to choose the input type and edit Player 1 mappings
+- **Top-level input setup** — open Input - Player 1 or Input - Player 2 from the sidebar to choose input type and edit mappings
 - **Adjustable scale** (1×, 2×, 4× nearest-neighbour) and audio volume
 
 ### ROM management
@@ -93,15 +93,27 @@ Audio is muted until you interact with the page — that's a browser autoplay po
 
 ### Default controls
 
+Player 1:
+
 ```
    ↑ ↓ ← →     D-pad
-       Z       B
-       X       A
-       C       Select
-       V       Start
+       /       B
+       .       A
+       [       Select
+       ]       Start
 ```
 
-Rebind any binding from the sidebar **Input** section.
+Player 2:
+
+```
+   W A S D     D-pad
+       B       B
+       V       A
+       Z       Select
+       X       Start
+```
+
+Rebind any binding from the sidebar **Input - Player 1** or **Input - Player 2** sections.
 
 ## Virtual consoles
 

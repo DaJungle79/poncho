@@ -209,6 +209,22 @@ select:focus-visible {
   background: rgba(248, 120, 88, 0.08);
 }
 .sidebar-btn svg { width: 22px; height: 22px; }
+.sidebar-player-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sidebar-player-badge {
+  position: absolute;
+  right: -2px;
+  top: -2px;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
 
 /* Instant retro tooltip popping out to the right of the sidebar.
    Native `title` has a ~1.5s delay we don't want here. The element is

@@ -19,6 +19,7 @@ import { createUpscaleClient } from '../../convert/upscale-registry';
 import { UpscaleWorker } from '../../runtime/upscale-worker';
 import type { ConsoleSpec } from '../../console/console';
 import { KeyboardSource } from '../../core/input/keyboard-source';
+import type { KeyBindings } from '../../config/schema';
 import { ConfigStore } from '../../config/store';
 import { Canvas2DRenderer } from '../../renderer/canvas-renderer';
 import { createScaler } from '../../renderer/scalers';
@@ -60,7 +61,8 @@ export class App {
   /** Active virtual console. Replaced when the user picks a different one. */
   nes: Nes | PonchoNes;
   readonly renderer: Canvas2DRenderer;
-  readonly keyboard: KeyboardSource;
+  readonly keyboard1: KeyboardSource;
+  readonly keyboard2: KeyboardSource;
   readonly romInfo: RomInfoClient;
 
   // ----- UI ---------------------------------------------------------------
@@ -116,8 +118,10 @@ export class App {
     this.renderer = new Canvas2DRenderer(dom.canvas);
     this.renderer.setPipeline(this.buildPipeline());
 
-    this.keyboard = new KeyboardSource(this.config.get().input.player1Keys);
-    this.nes.setController(1, this.keyboard);
+    this.keyboard1 = new KeyboardSource(this.config.get().input.player1Keys);
+    this.keyboard2 = new KeyboardSource(this.config.get().input.player2Keys);
+    this.nes.setController(1, this.keyboard1);
+    this.nes.setController(2, this.keyboard2);
 
     this.romInfo = new RomInfoClient(platform.romInfoStorage);
 
@@ -168,11 +172,19 @@ export class App {
     // restricts to 1× since its native frame is already 1024×960).
     this.settingsPanel.setConsoleId(this.config.get().general.selectedConsoleId);
 
-    const controlsPanel = new ControlsPanel({
+    const inputPlayer1Panel = new ControlsPanel({
       config: this.config,
-      onBindingsChanged: (bindings) => this.keyboard.setBindings(bindings),
+      player: 1,
+      onBindingsChanged: (player, bindings) => this.updateKeyboardBindings(player, bindings),
     });
-    this.stack.registerL2(controlsPanel);
+    this.stack.registerL2(inputPlayer1Panel);
+
+    const inputPlayer2Panel = new ControlsPanel({
+      config: this.config,
+      player: 2,
+      onBindingsChanged: (player, bindings) => this.updateKeyboardBindings(player, bindings),
+    });
+    this.stack.registerL2(inputPlayer2Panel);
 
     this.sidebar.add({
       id: 'consoles',
@@ -183,19 +195,27 @@ export class App {
       icon: () => lucide('cpu'),
     });
     this.sidebar.add({
-      id: 'controls',
-      panelId: 'controls',
-      label: 'Input',
+      id: 'input-p1',
+      panelId: 'input-p1',
+      label: 'Input - Player 1',
       position: 'top',
       hotkey: '4',
-      icon: () => gameIcon('retro-controller'),
+      icon: () => playerInputIcon(1),
+    });
+    this.sidebar.add({
+      id: 'input-p2',
+      panelId: 'input-p2',
+      label: 'Input - Player 2',
+      position: 'top',
+      hotkey: '5',
+      icon: () => playerInputIcon(2),
     });
     this.sidebar.add({
       id: 'settings',
       panelId: 'settings',
       label: 'Settings',
       position: 'top',
-      hotkey: '5',
+      hotkey: '6',
       icon: () => lucide('settings'),
     });
     this.sidebar.add({
@@ -229,7 +249,8 @@ export class App {
     this.stack.openL2('consoles');
     this.sidebar.syncActive();
 
-    this.keyboard.attach();
+    this.keyboard1.attach();
+    this.keyboard2.attach();
 
     // ----- Click-outside dismissal of L2/L3 ------------------------------
     const layoutMain = document.querySelector<HTMLElement>('.layout-main')!;
@@ -360,7 +381,8 @@ export class App {
 
     this.activeConsoleId = spec.id;
     this.nes = createConsole(spec.id);
-    this.nes.setController(1, this.keyboard);
+    this.nes.setController(1, this.keyboard1);
+    this.nes.setController(2, this.keyboard2);
     this.renderer.setPipeline(this.buildPipeline());
 
     this.sidebar.setTooltip('consoles', this.consoleLabelFromId(spec.id));
@@ -371,6 +393,10 @@ export class App {
       this.consolesPanel.setRomsOpen(spec.id);
     }
     this.setStatus(`${spec.name} selected.`);
+  }
+
+  private updateKeyboardBindings(player: 1 | 2, bindings: KeyBindings): void {
+    (player === 1 ? this.keyboard1 : this.keyboard2).setBindings(bindings);
   }
 
   private toggleConsoleRoms(spec: ConsoleSpec): void {
@@ -586,6 +612,19 @@ function lucide(name: string): HTMLElement {
   const i = document.createElement('i');
   i.dataset.lucide = name;
   return i;
+}
+
+function playerInputIcon(player: 1 | 2): HTMLElement {
+  const wrap = document.createElement('span');
+  wrap.className = 'sidebar-player-icon';
+  wrap.appendChild(gameIcon('retro-controller'));
+
+  const badge = document.createElement('span');
+  badge.className = 'sidebar-player-badge';
+  badge.textContent = String(player);
+  wrap.appendChild(badge);
+
+  return wrap;
 }
 
 /**

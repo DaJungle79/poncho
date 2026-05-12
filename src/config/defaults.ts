@@ -6,13 +6,22 @@ export const DEFAULT_PLAYER1_KEYS: KeyBindings = {
   ArrowDown: NesButton.Down,
   ArrowLeft: NesButton.Left,
   ArrowRight: NesButton.Right,
-  KeyZ: NesButton.B,
-  KeyX: NesButton.A,
-  KeyC: NesButton.Select,
-  KeyV: NesButton.Start,
+  Period: NesButton.A,
+  Slash: NesButton.B,
+  BracketLeft: NesButton.Select,
+  BracketRight: NesButton.Start,
 };
 
-export const DEFAULT_PLAYER2_KEYS: KeyBindings = {};
+export const DEFAULT_PLAYER2_KEYS: KeyBindings = {
+  KeyW: NesButton.Up,
+  KeyS: NesButton.Down,
+  KeyA: NesButton.Left,
+  KeyD: NesButton.Right,
+  KeyV: NesButton.A,
+  KeyB: NesButton.B,
+  KeyZ: NesButton.Select,
+  KeyX: NesButton.Start,
+};
 
 export const DEFAULT_CONFIG: Config = {
   version: CONFIG_VERSION,
@@ -27,6 +36,8 @@ export const DEFAULT_CONFIG: Config = {
     muted: false,
   },
   input: {
+    player1Type: 'keyboard',
+    player2Type: 'keyboard',
     player1Keys: DEFAULT_PLAYER1_KEYS,
     player2Keys: DEFAULT_PLAYER2_KEYS,
   },

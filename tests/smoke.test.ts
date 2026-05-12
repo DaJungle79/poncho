@@ -95,7 +95,8 @@ describe('ConfigStore', () => {
     const storage = new MemoryStorage();
     const store = new ConfigStore(storage);
     expect(store.get().video.scaler).toBe(DEFAULT_CONFIG.video.scaler);
-    expect(store.get().input.player1Keys.KeyZ).toBe(NesButton.B);
+    expect(store.get().input.player1Keys.Slash).toBe(NesButton.B);
+    expect(store.get().input.player2Keys.KeyB).toBe(NesButton.B);
   });
 
   it('persists updates and reloads them', () => {
@@ -106,6 +107,30 @@ describe('ConfigStore', () => {
     }));
     const reopened = new ConfigStore(storage);
     expect(reopened.get().audio.volume).toBe(0.25);
+  });
+
+  it('migrates old stock player 1 bindings to the two-player defaults', () => {
+    const storage = new MemoryStorage();
+    storage.setItem('poncho.nes.config', JSON.stringify({
+      version: 2,
+      input: {
+        player1Keys: {
+          ArrowUp: NesButton.Up,
+          ArrowDown: NesButton.Down,
+          ArrowLeft: NesButton.Left,
+          ArrowRight: NesButton.Right,
+          KeyZ: NesButton.B,
+          KeyX: NesButton.A,
+          KeyC: NesButton.Select,
+          KeyV: NesButton.Start,
+        },
+        player2Keys: {},
+      },
+    }));
+    const migrated = new ConfigStore(storage).get();
+    expect(migrated.input.player1Keys.Slash).toBe(NesButton.B);
+    expect(migrated.input.player1Keys.KeyZ).toBeUndefined();
+    expect(migrated.input.player2Keys.KeyW).toBe(NesButton.Up);
   });
 });
 
