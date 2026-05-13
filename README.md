@@ -58,7 +58,8 @@ Open <http://localhost:5173>. The **Consoles** panel opens first. Use the **ROMs
 - **Readable workspace notifications** — status messages appear at the bottom-right, replace one another, and dismiss automatically after enough reading time
 - **Stateful pause control** — the sidebar Pause action highlights while paused and changes to Play for resume
 - **Top-level input setup** — open Input - Player 1 or Input - Player 2 from the sidebar to choose input type and edit mappings
-- **Adjustable scale** (1×, 2×, 4× nearest-neighbour) and audio volume
+- **Pixel-art scalers** — xBRZ (2×–6×) and MMPX (2×) alongside nearest-neighbour; selectable per-console from Settings. Classic NES defaults to xBRZ 4×. xBRZ smooths diagonal edges with curve-fitted blending; MMPX preserves the source-pixel aesthetic. For Poncho-NES, xBRZ can be baked into the `.poncho` AI cache section at convert time (palette-aware snap-back to extended-palette values) so per-tile quality is cached across sessions.
+- **Adjustable audio volume**
 
 ### ROM management
 

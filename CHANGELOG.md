@@ -7,7 +7,11 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
-### Changed - UI/UX ROM add flow
+## [0.5.0] — 2026-05-13
+
+v0.5.0 — Deterministic real-time pixel-art scalers. xBRZ (2×–6×) and MMPX (2×) ship as drop-in alternatives to nearest-neighbour in the renderer pipeline, covering both Classic NES (256×240 upscaled post-render) and Poncho-NES (palette-aware xBRZ baked into the `.poncho` AI cache section at convert time). The extended sub-palette ramp interpolation is upgraded from linear-sRGB to Oklab, giving perceptually-uniform gradient shading that xBRZ blends can snap into. No model files, no inference, no cloud calls.
+
+### Changed — v0.5: UI/UX ROM add flow
 
 - **Settings moved up the sidebar** - the Settings icon now sits directly below Consoles instead of at the bottom of the menu, making configuration easier to find.
 - **Settings global/per-console separation** - Settings now keeps global Appearance and Audio first, then separates console-specific Video with a divider and title-matched spacing.
@@ -26,13 +30,20 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 - **ROMs panel Add ROM subview** - the old inline Upload / Convert buttons are replaced by one stable `Add ROM` action at the top of the ROMs panel. It toggles a darker local `Add new ROM` subview with a drag-and-drop zone, click-to-pick fallback, selected-file summary, and Esc-to-close behavior.
 - **Unified upload + conversion** - Classic NES accepts `.nes`; Poncho-NES accepts `.poncho` directly and `.nes` via client-side conversion to `.poncho`. The Upscale checkbox and optional custom ONNX model attach appear only when the selected Poncho-NES file needs conversion.
 
-### Added — v0.5 phase 5: settings UI + scaler defaults
+### Added — v0.5: xBRZ + MMPX renderer scalers
+
+- **`XbrzScaler`** (`xbrz-2x` … `xbrz-6x`) — TypeScript port of Zenju's xBRZ pattern-match-and-blend algorithm. For each output pixel, walks a 5×5 source neighbourhood, detects edge orientation via YCbCr-weighted colour distance, and alpha-blends using pre-computed pattern tables. Registered in `src/renderer/scalers/index.ts`; Classic NES defaults to `xbrz-4x`.
+- **`MmpxScaler`** (`mmpx-2x`) — port of McGuire/Mara's MMPX 3×3 pattern-match copy scaler. Outputs only source palette colors (no curve-fitting), preserving the pixel-art aesthetic while smoothing staircased diagonals. ~1–3 ms / frame at 256×240 → 512×480.
+- **`XbrzUpscaleClient`** (`xbrz-4x-snap`) — wraps xBRZ as a Poncho-NES `UpscaleClient`. Runs 4× xBRZ on the 8×8 NES tile primer, then snaps each of the 1024 output pixels back to the nearest extended-palette pv value. Registered in `src/convert/upscale-registry.ts` with `cacheModelId = AI_CACHE_MODEL_XBRZ_4X (3)`. Default model for the Poncho-NES convert flow.
+- **Oklab ramp interpolation** — `buildExtendedSubPalette()` in `src/runtime/extended-palette.ts` now interpolates the 84 shades per ramp through Oklab (via new `src/runtime/oklch.ts`) instead of linear-sRGB. Each shade is perceptually equidistant from its neighbours; xBRZ blends snap to visually-correct mid-shades rather than gamma-distorted approximations. Existing v0.4 `.poncho` AI-cache pv values remain valid indices; their rendered RGB shifts to the improved gradient.
+
+### Added — v0.5: scalers + settings UI
 
 - **Scaler dropdown groups** — the Scale selector in Settings is now split into three `<optgroup>`s: Nearest-neighbour (1×/2×/4×), xBRZ (2×–6×), and MMPX (2×). A hint below the selector describes the tradeoff.
 - **Classic NES defaults to xBRZ 4×** — when NES is selected and the stored scaler is `nearest-1x` (e.g. arriving from Poncho-NES which forces that value), it is automatically bumped to `xbrz-4x`. New installs also start at `xbrz-4x` (changed `DEFAULT_CONFIG.video.scaler`).
 - **Poncho-NES scaler guard (fixed)** — all non-`nearest-1x` pipeline scalers are now disabled in the dropdown and auto-downgraded when Poncho-NES is active. The previous fix only caught `nearest-2x`/`nearest-4x`; xBRZ and MMPX scalers slipped through, causing ~12 fps on the 1024×960 framebuffer. The downgrade now reads from `ConfigStore` directly (not `scaleSelect.value`) so it fires correctly at boot before `onShow` has synced the `<select>`.
 
-### Changed — v0.5 phase 5: performance
+### Changed — v0.5: performance
 
 - **`XbrzUpscaleClient` extended-palette cache** — the per-tile `buildExtendedSubPalette` call (252 Oklab lerps ≈ 2 500 transcendental operations) is now cached by 4-byte sub-palette key with a 32-entry LRU eviction. Tiles sharing a sub-palette (the common case) skip the build entirely on subsequent calls.
 - **`XbrzUpscaleClient` scratch buffers** — `primerU32` and `xbrzOut` are pre-allocated once on the client instance and reused each `upscaleTile` call, avoiding two per-tile `Uint32Array` allocations.

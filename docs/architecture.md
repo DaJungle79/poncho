@@ -57,6 +57,37 @@ Things to know:
 - `src/platform/types.ts` is the platform-API seam: `audio`, `configStorage`, `romInfoStorage`, `romLibrary`, `serverRoms`, `filePicker`. Implemented per-shell under `src/platform/<name>/`.
 - `src/shells/<name>/` is the *shell* seam: each shell owns its own bootstrap, App orchestrator, and UI tree. The web shell's App lives at `src/shells/web/app.ts`; its panels at `src/shells/web/ui/`. UI is intentionally **not** shared across shells — duplication is fine until two shells converge on a UI worth lifting out.
 
+## Renderer pipeline
+
+`src/renderer/` is a stateless pipeline composed of three stages: `preFilters → scaler → postFilters`. Each stage implements `RenderStage` (`outputSize` + `apply`). `Canvas2DRenderer.render()` walks input → preFilters → scaler → postFilters → canvas, hopping between two scratch `FrameBuffer`s.
+
+```
+FrameBuffer (256×240 NES  or  1024×960 Poncho-NES)
+      │
+      ▼ preFilters[]         (empty in v0.5 — CRT / NTSC reserved)
+      │
+      ▼ Scaler               picks one:
+      │   nearest-1x / 2x / 4x   — fast pixel doubling
+      │   xbrz-2x … xbrz-6x      — YCbCr pattern-match-and-blend (Phase 1)
+      │   mmpx-2x                 — 3×3 copy scaler, source-palette-only (Phase 2)
+      │
+      ▼ postFilters[]        (empty in v0.5)
+      │
+      ▼ Canvas2D blit
+```
+
+**Scaler registry** (`src/renderer/scalers/index.ts`): maps string id → `() => Scaler` factory. To add a scaler: implement `Scaler` (which extends `RenderStage`), add an entry to the registry map and the `ScalerId` union type.
+
+**Three distinct upscaling layers** — avoid confusing them:
+
+| Layer | Location | When | What v0.5 ships |
+|---|---|---|---|
+| A — Renderer scaler | `src/renderer/scalers/` | Runtime, every frame, post-render | `XbrzScaler`, `MmpxScaler` |
+| B — PpuUltra NN fallback | `renderScanlineUpscaled` | Runtime, per tile on resolver miss | Unchanged — cheap NN fallback |
+| C — UpscaleClient bake | `src/convert/upscale-registry.ts` | Convert-time or background worker | `XbrzUpscaleClient` (`xbrz-4x-snap`) |
+
+Classic NES only has layer A. Poncho-NES with a baked cart uses layer C at convert time and layer B at runtime on cache misses; layer A is only applied on top when the user explicitly picks xBRZ in Settings (useful for unbaked carts).
+
 ## Adding a shell
 
 1. Implement `Platform` from `src/platform/types.ts` under `src/platform/<name>/` (factory: `create<Name>Platform()`).
