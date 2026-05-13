@@ -1,10 +1,28 @@
+import { ConvertError, convertInesToPoncho } from '../../../../convert/ines-to-poncho';
+import {
+  AiConvertCancelled,
+  convertInesToPonchoAi,
+  type AiConvertProgress,
+} from '../../../../convert/ines-to-poncho-ai';
+import {
+  createUpscaleClient,
+  DEFAULT_UPSCALE_MODEL_ID,
+  type UpscaleModelContext,
+} from '../../../../convert/upscale-registry';
+import {
+  OnnxUpscaleClient,
+  type OnnxUpscaleClientConfig,
+} from '../../../../convert/clients/onnx-upscale-client';
+import { AI_CACHE_MODEL_UNSPECIFIED } from '../../../../core/cart-poncho/ai-cache';
+import type { UpscaleClient } from '../../../../convert/upscale-client';
 import { gameIcon, mountLucideIcons } from '../icons';
 import type { Panel } from '../panel-stack';
 import type { FilePicker, RomLibrary, ServerRomLoader } from '../../../../platform/types';
+import { InvalidRomError, validateRom } from '../../../../platform/web/ines-validator';
 import type { LoadedRom, StoredRomEntry } from '../../../../domain/rom';
 
 export interface RomsPanelDeps {
-  /** Persistent local library — uploaded ROMs (web: IndexedDB). */
+  /** Persistent local library - uploaded ROMs (web: IndexedDB). */
   romLibrary: RomLibrary;
   /** Server-folder ROM loader. `null` on shells without a dev server (Electron). */
   serverRoms: ServerRomLoader | null;
@@ -12,87 +30,194 @@ export interface RomsPanelDeps {
   filePicker: FilePicker;
   /** Called when a ROM has been loaded successfully. */
   onLoaded: (rom: LoadedRom) => void | Promise<void>;
-  /** Optional callback for transient status messages (routed to the bottom status bar). */
+  /** Optional callback for transient workspace notifications. */
   onStatus?: (text: string) => void;
-  /** Open the L3 "Convert .nes" panel — actual conversion logic lives there. */
-  onOpenConvert?: () => void;
+  /** Platform-level loader hooks so model assets cache across reloads. */
+  getUpscaleContext?: () => UpscaleModelContext | undefined;
 }
 
+interface RomTarget {
+  consoleId: string;
+  consoleName: string;
+  libraryExtensions: readonly string[];
+  uploadExtensions: readonly string[];
+  convertsFrom: readonly string[];
+  convertedExtension: string | null;
+}
+
+const ROM_TARGETS: Record<string, Omit<RomTarget, 'consoleName'>> = {
+  nes: {
+    consoleId: 'nes',
+    libraryExtensions: ['.nes'],
+    uploadExtensions: ['.nes'],
+    convertsFrom: [],
+    convertedExtension: null,
+  },
+  'poncho-nes': {
+    consoleId: 'poncho-nes',
+    libraryExtensions: ['.poncho'],
+    uploadExtensions: ['.nes', '.poncho'],
+    convertsFrom: ['.nes'],
+    convertedExtension: '.poncho',
+  },
+};
+
 /**
- * ROMs panel — two ROM sources stacked vertically.
- *
- * Playback controls (Power / Reset / Pause) live in the sidebar instead
- * of inside this panel, so they're reachable without opening it.
- *
- *   Browser storage  — ROMs the user has uploaded. Persisted via IndexedDB
- *                      so they survive page reloads. The Upload button
- *                      stays visible after each upload so the user can
- *                      build up a library. Click an entry to load it.
- *                      Click the × on an entry to remove it.
- *
- *   Server           — ROMs sitting in the project's `roms/` folder,
- *                      served by the Vite dev middleware. Listed by name;
- *                      click to load.
+ * ROMs panel - lists playable ROMs for the active console and owns the
+ * "Add ROM" flow. The add flow is a local panel state, not a separate
+ * top-level menu item, so upload/conversion stays attached to the ROM bay.
  */
 export class RomsPanel implements Panel {
   readonly id = 'roms';
   readonly root: HTMLElement;
 
   private readonly panelTitle: HTMLHeadingElement;
+  private readonly listView: HTMLElement;
+  private readonly addView: HTMLElement;
   private readonly browserList: HTMLUListElement;
   private readonly serverList: HTMLUListElement;
   private readonly serverSection: HTMLElement;
-  private readonly btnUpload: HTMLButtonElement;
-  private readonly uploadLabel: HTMLSpanElement;
-  private readonly btnConvert: HTMLButtonElement;
-  private consoleId = 'nes';
+  private readonly btnAdd: HTMLButtonElement;
+  private readonly btnBack: HTMLButtonElement;
+  private readonly dropZone: HTMLElement;
+  private readonly dropCopy: HTMLElement;
+  private readonly acceptHint: HTMLElement;
+  private readonly pickedBox: HTMLElement;
+  private readonly pickedNameEl: HTMLElement;
+  private readonly pickedMetaEl: HTMLElement;
+  private readonly removePickedBtn: HTMLButtonElement;
+  private readonly convertNotice: HTMLElement;
+  private readonly aiToggle: HTMLElement;
+  private readonly aiCheckbox: HTMLInputElement;
+  private readonly aiOptionsEl: HTMLElement;
+  private readonly attachBtn: HTMLButtonElement;
+  private readonly attachedRow: HTMLElement;
+  private readonly attachedNameEl: HTMLElement;
+  private readonly detachBtn: HTMLButtonElement;
+  private readonly uploadBtn: HTMLButtonElement;
+  private readonly uploadStatusEl: HTMLElement;
+
+  private target = makeRomTarget('nes', 'NES');
+  private addOpen = false;
+  private picked: LoadedRom | null = null;
+  private attachedModel: { name: string; bytes: Uint8Array } | null = null;
 
   constructor(private readonly deps: RomsPanelDeps) {
     this.root = document.createElement('section');
-    this.root.className = 'panel panel-l2';
+    this.root.className = 'panel panel-l3 roms-panel';
     this.root.innerHTML = `
       <header class="panel-head">
         <h2 data-panel-title>NES ROMs</h2>
       </header>
-      <div class="panel-body">
-        <section class="rom-section">
-          <h3><i data-lucide="hard-drive"></i><span>Browser storage</span></h3>
-          <ul class="rom-list" data-browser-list></ul>
-          <div class="rom-actions">
-            <button type="button" class="file-button file-button-compact" data-upload>
-              <i data-lucide="upload"></i>
-              <span data-upload-label>Upload .nes</span>
-            </button>
-            <button type="button" class="file-button file-button-compact" data-convert hidden>
-              <i data-lucide="file-input"></i>
-              <span>Convert .nes</span>
-            </button>
-          </div>
-        </section>
+      <div class="panel-body rom-panel-body">
+        <button type="button" class="settings-link rom-add-toggle" data-add-toggle aria-pressed="false">
+          <i data-lucide="plus"></i>
+          <span>Add ROM</span>
+        </button>
 
-        <section class="rom-section" data-server-section>
-          <h3><i data-lucide="folder"></i><span>Server</span> <span class="hint">/roms/</span></h3>
-          <ul class="rom-list" data-server-list></ul>
-        </section>
+        <div class="rom-view rom-list-view" data-list-view>
+          <section class="rom-section">
+            <h3><i data-lucide="hard-drive"></i><span>Local storage</span></h3>
+            <ul class="rom-list" data-browser-list></ul>
+          </section>
+
+          <section class="rom-section" data-server-section>
+            <h3><i data-lucide="folder"></i><span>Server storage</span> <span class="hint">/roms/</span></h3>
+            <ul class="rom-list" data-server-list></ul>
+          </section>
+        </div>
+
+        <div class="rom-view rom-add-view" data-add-view hidden>
+          <div class="rom-add-head">
+            <button type="button" class="rom-add-back" data-add-back title="Back to ROMs" aria-label="Back to ROMs">
+              <i data-lucide="chevron-left"></i>
+            </button>
+            <h3>Add new ROM</h3>
+          </div>
+
+          <div class="rom-drop-zone" data-drop-zone role="button" tabindex="0">
+            <i data-lucide="file-plus-2"></i>
+            <div class="rom-drop-copy" data-drop-copy>
+              <span>Drop a file or click to pick</span>
+              <small data-accept-hint>Accepts <strong>.nes</strong></small>
+            </div>
+            <div class="rom-picked" data-picked hidden>
+              <span class="rom-picked-name" data-picked-name></span>
+              <span class="rom-picked-meta" data-picked-meta></span>
+              <button type="button" class="rom-picked-remove" data-picked-remove title="Remove file" aria-label="Remove file">
+                <i data-lucide="x"></i>
+              </button>
+            </div>
+          </div>
+
+          <p class="settings-hint rom-convert-notice" data-convert-notice hidden>
+            The selected .nes ROM will be converted to .poncho format.
+          </p>
+
+          <label class="rom-ai-toggle convert-ai-toggle" data-ai-toggle hidden>
+            <input type="checkbox" data-ai-checkbox checked>
+            <span>Upscale</span>
+          </label>
+
+          <div class="convert-ai-options" data-ai-options hidden>
+            <button type="button" class="file-button file-button-compact" data-attach-model>
+              <i data-lucide="paperclip"></i>
+              <span>Attach custom model (.onnx)</span>
+            </button>
+            <p class="convert-attached-row" data-attached-model hidden>
+              <span data-attached-name></span>
+              <button type="button" class="rom-item-del" data-detach-model title="Detach" aria-label="Detach model">
+                <i data-lucide="x"></i>
+              </button>
+            </p>
+          </div>
+
+          <button type="button" class="settings-link convert-submit" data-upload-submit disabled>
+            <i data-lucide="upload"></i>
+            <span>Upload</span>
+          </button>
+
+          <p class="settings-hint convert-status" data-upload-status></p>
+        </div>
       </div>
     `;
 
     const head = this.root.querySelector<HTMLElement>('.panel-head')!;
-    const cassette = gameIcon('cassette');
-    cassette.classList.add('panel-head-icon');
-    head.prepend(cassette);
+    const cartridge = gameIcon('cartridge');
+    cartridge.classList.add('panel-head-icon');
+    head.prepend(cartridge);
 
     this.panelTitle = this.root.querySelector<HTMLHeadingElement>('[data-panel-title]')!;
+    this.listView = this.root.querySelector<HTMLElement>('[data-list-view]')!;
+    this.addView = this.root.querySelector<HTMLElement>('[data-add-view]')!;
     this.browserList = this.root.querySelector<HTMLUListElement>('[data-browser-list]')!;
     this.serverList = this.root.querySelector<HTMLUListElement>('[data-server-list]')!;
     this.serverSection = this.root.querySelector<HTMLElement>('[data-server-section]')!;
-    this.btnUpload = this.root.querySelector<HTMLButtonElement>('[data-upload]')!;
-    this.uploadLabel = this.root.querySelector<HTMLSpanElement>('[data-upload-label]')!;
-    this.btnConvert = this.root.querySelector<HTMLButtonElement>('[data-convert]')!;
+    this.btnAdd = this.root.querySelector<HTMLButtonElement>('[data-add-toggle]')!;
+    this.btnBack = this.root.querySelector<HTMLButtonElement>('[data-add-back]')!;
+    this.dropZone = this.root.querySelector<HTMLElement>('[data-drop-zone]')!;
+    this.dropCopy = this.root.querySelector<HTMLElement>('[data-drop-copy]')!;
+    this.acceptHint = this.root.querySelector<HTMLElement>('[data-accept-hint]')!;
+    this.pickedBox = this.root.querySelector<HTMLElement>('[data-picked]')!;
+    this.pickedNameEl = this.root.querySelector<HTMLElement>('[data-picked-name]')!;
+    this.pickedMetaEl = this.root.querySelector<HTMLElement>('[data-picked-meta]')!;
+    this.removePickedBtn = this.root.querySelector<HTMLButtonElement>('[data-picked-remove]')!;
+    this.convertNotice = this.root.querySelector<HTMLElement>('[data-convert-notice]')!;
+    this.aiToggle = this.root.querySelector<HTMLElement>('[data-ai-toggle]')!;
+    this.aiCheckbox = this.root.querySelector<HTMLInputElement>('[data-ai-checkbox]')!;
+    this.aiOptionsEl = this.root.querySelector<HTMLElement>('[data-ai-options]')!;
+    this.attachBtn = this.root.querySelector<HTMLButtonElement>('[data-attach-model]')!;
+    this.attachedRow = this.root.querySelector<HTMLElement>('[data-attached-model]')!;
+    this.attachedNameEl = this.root.querySelector<HTMLElement>('[data-attached-name]')!;
+    this.detachBtn = this.root.querySelector<HTMLButtonElement>('[data-detach-model]')!;
+    this.uploadBtn = this.root.querySelector<HTMLButtonElement>('[data-upload-submit]')!;
+    this.uploadStatusEl = this.root.querySelector<HTMLElement>('[data-upload-status]')!;
 
     if (!this.deps.serverRoms) this.serverSection.hidden = true;
 
     this.bindEvents();
+    this.syncAddView();
+    this.syncPicked();
   }
 
   onShow(): void {
@@ -101,19 +226,21 @@ export class RomsPanel implements Panel {
     void this.refreshServerList();
   }
 
-  /** Update panel chrome and ROM lists for the newly-active console. */
-  setConsoleId(consoleId: string, consoleName: string): void {
-    this.consoleId = consoleId;
-    this.panelTitle.textContent = `${consoleName} ROMs`;
-    this.uploadLabel.textContent = consoleId === 'poncho-nes'
-      ? 'Upload .poncho'
-      : 'Upload .nes';
-    // The "Convert .nes" button is Poncho-NES-only — it opens the L3
-    // ConvertPanel which owns the bake/runtime upscale flow.
-    this.btnConvert.hidden = consoleId !== 'poncho-nes';
+  onHide(): void {
+    this.closeAddView();
   }
 
-  /** Public so the L3 ConvertPanel can refresh us after a save. */
+  /** Update panel chrome and ROM lists for the newly-active console. */
+  setConsoleId(consoleId: string, consoleName: string): void {
+    this.target = makeRomTarget(consoleId, consoleName);
+    this.panelTitle.textContent = `${consoleName} ROMs`;
+    this.acceptHint.innerHTML = renderAcceptHint(this.target.uploadExtensions);
+    this.clearPicked();
+    void this.refreshBrowserList();
+    void this.refreshServerList();
+  }
+
+  /** Public so external flows can refresh us after a save. */
   async refreshBrowserList(): Promise<void> {
     return this.refreshBrowserListInternal();
   }
@@ -122,10 +249,47 @@ export class RomsPanel implements Panel {
     this.deps.onStatus?.(text);
   }
 
+  private setUploadStatus(text: string): void {
+    this.uploadStatusEl.textContent = text;
+    this.setStatus(text);
+  }
+
+  // ----- View state ---------------------------------------------------------
+
+  private openAddView(): void {
+    this.addOpen = true;
+    this.syncAddView();
+  }
+
+  private closeAddView(): void {
+    if (!this.addOpen) return;
+    this.addOpen = false;
+    this.clearPicked();
+    this.syncAddView();
+  }
+
+  private toggleAddView(): void {
+    if (this.addOpen) {
+      this.closeAddView();
+    } else {
+      this.openAddView();
+    }
+  }
+
+  private syncAddView(): void {
+    this.listView.hidden = this.addOpen;
+    this.addView.hidden = !this.addOpen;
+    this.btnAdd.classList.toggle('selected', this.addOpen);
+    this.btnAdd.setAttribute('aria-pressed', this.addOpen ? 'true' : 'false');
+    if (this.addOpen) {
+      mountLucideIcons();
+    }
+  }
+
   // ----- Browser-storage list ----------------------------------------------
 
   private async refreshBrowserListInternal(): Promise<void> {
-    this.browserList.innerHTML = '<li class="rom-empty">…</li>';
+    this.browserList.innerHTML = '<li class="rom-empty">...</li>';
     let all: StoredRomEntry[] = [];
     try {
       all = await this.deps.romLibrary.list();
@@ -134,11 +298,9 @@ export class RomsPanel implements Panel {
         `<li class="rom-empty">Storage unavailable: ${(err as Error).message}</li>`;
       return;
     }
-    const ext = this.consoleId === 'poncho-nes' ? '.poncho' : '.nes';
-    const entries = all.filter((e) => e.name.toLowerCase().endsWith(ext));
+    const entries = all.filter((e) => hasAnyExtension(e.name, this.target.libraryExtensions));
     if (entries.length === 0) {
-      this.browserList.innerHTML =
-        `<li class="rom-empty">Upload a ${ext} file to add it here.</li>`;
+      this.browserList.innerHTML = '<li class="rom-empty">No ROMs added yet.</li>';
       return;
     }
     this.browserList.innerHTML = '';
@@ -169,7 +331,7 @@ export class RomsPanel implements Panel {
   }
 
   private async loadFromBrowser(name: string): Promise<void> {
-    this.setStatus(`Loading ${name}…`);
+    this.setStatus(`Loading ${name}...`);
     try {
       const data = await this.deps.romLibrary.get(name);
       if (!data) {
@@ -199,7 +361,7 @@ export class RomsPanel implements Panel {
 
   private async refreshServerList(): Promise<void> {
     if (!this.deps.serverRoms) return;
-    this.serverList.innerHTML = '<li class="rom-empty">Scanning…</li>';
+    this.serverList.innerHTML = '<li class="rom-empty">Scanning...</li>';
     let all: string[] = [];
     try {
       all = await this.deps.serverRoms.list();
@@ -207,11 +369,9 @@ export class RomsPanel implements Panel {
       this.serverList.innerHTML = '<li class="rom-empty">Server unreachable.</li>';
       return;
     }
-    const ext = this.consoleId === 'poncho-nes' ? '.poncho' : '.nes';
-    const files = all.filter((f) => f.toLowerCase().endsWith(ext));
+    const files = all.filter((f) => hasAnyExtension(f, this.target.libraryExtensions));
     if (files.length === 0) {
-      this.serverList.innerHTML =
-        `<li class="rom-empty">Drop ${ext} files in <code>roms/</code>.</li>`;
+      this.serverList.innerHTML = '<li class="rom-empty">No ROMs added yet.</li>';
       return;
     }
     this.serverList.innerHTML = '';
@@ -233,7 +393,7 @@ export class RomsPanel implements Panel {
 
   private async loadFromServer(filename: string): Promise<void> {
     if (!this.deps.serverRoms) return;
-    this.setStatus(`Loading ${filename}…`);
+    this.setStatus(`Loading ${filename}...`);
     try {
       const rom = await this.deps.serverRoms.load(filename);
       await this.deps.onLoaded(rom);
@@ -243,39 +403,411 @@ export class RomsPanel implements Panel {
     }
   }
 
-  // ----- Upload + convert wiring -------------------------------------------
+  // ----- Add ROM -----------------------------------------------------------
 
   private bindEvents(): void {
-    this.btnUpload.addEventListener('click', async () => {
-      const accept = this.consoleId === 'poncho-nes' ? ['.poncho'] : ['.nes'];
-      this.setStatus(`Choose a ${accept[0]} file…`);
-      let rom: LoadedRom | null;
-      try {
-        rom = await this.deps.filePicker.pick({ accept });
-      } catch (err) {
-        this.setStatus(`Failed: ${(err as Error).message}`);
-        return;
-      }
-      if (!rom) {
-        this.setStatus('Upload cancelled.');
-        return;
-      }
-      try {
-        await this.deps.romLibrary.add(rom.name, rom.data);
-        await this.refreshBrowserList();
-        await this.deps.onLoaded(rom);
-        this.setStatus(`Loaded ${rom.name} (saved to browser storage)`);
-      } catch (err) {
-        this.setStatus(`Failed: ${(err as Error).message}`);
-      }
+    this.btnAdd.addEventListener('click', () => this.toggleAddView());
+    this.btnBack.addEventListener('click', () => this.closeAddView());
+    this.dropZone.addEventListener('click', () => { void this.pickRomFile(); });
+    this.dropZone.addEventListener('keydown', (event) => {
+      if (event.target !== this.dropZone) return;
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      void this.pickRomFile();
     });
+    this.dropZone.addEventListener('dragenter', (event) => this.handleDrag(event));
+    this.dropZone.addEventListener('dragover', (event) => this.handleDrag(event));
+    this.dropZone.addEventListener('dragleave', () => this.dropZone.classList.remove('drag-over'));
+    this.dropZone.addEventListener('drop', (event) => { void this.handleDrop(event); });
+    this.removePickedBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.clearPicked();
+      this.setUploadStatus('File removed.');
+    });
+    this.aiCheckbox.addEventListener('change', () => this.syncAiOptions());
+    this.attachBtn.addEventListener('click', () => { void this.handleAttachModel(); });
+    this.detachBtn.addEventListener('click', () => this.detachModel());
+    this.uploadBtn.addEventListener('click', () => { void this.handleUpload(); });
 
-    this.btnConvert.addEventListener('click', () => this.deps.onOpenConvert?.());
+    this.root.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || !this.addOpen) return;
+      event.preventDefault();
+      this.closeAddView();
+    });
   }
+
+  private handleDrag(event: DragEvent): void {
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = 'copy';
+    this.dropZone.classList.add('drag-over');
+  }
+
+  private async handleDrop(event: DragEvent): Promise<void> {
+    event.preventDefault();
+    this.dropZone.classList.remove('drag-over');
+    const file = event.dataTransfer?.files[0];
+    if (!file) return;
+    try {
+      const rom = await readRomFile(file, this.target.uploadExtensions);
+      this.setPicked(rom);
+    } catch (err) {
+      this.rejectPickedFile(err);
+    }
+  }
+
+  private async pickRomFile(): Promise<void> {
+    try {
+      const rom = await this.deps.filePicker.pick({ accept: [...this.target.uploadExtensions] });
+      if (!rom) {
+        this.setUploadStatus('Pick cancelled.');
+        return;
+      }
+      assertAcceptedExtension(rom.name, this.target.uploadExtensions);
+      this.setPicked(rom);
+    } catch (err) {
+      this.rejectPickedFile(err);
+    }
+  }
+
+  private rejectPickedFile(err: unknown): void {
+    this.clearPicked();
+    this.setUploadStatus(`Failed: ${(err as Error).message}`);
+  }
+
+  private setPicked(rom: LoadedRom): void {
+    this.picked = rom;
+    this.syncPicked();
+    this.setUploadStatus(`${rom.name} (${formatSize(rom.data.length)}) ready.`);
+  }
+
+  private clearPicked(): void {
+    this.picked = null;
+    this.uploadStatusEl.textContent = '';
+    this.syncPicked();
+  }
+
+  private syncPicked(): void {
+    const picked = this.picked;
+    this.pickedBox.hidden = !picked;
+    this.dropCopy.hidden = !!picked;
+    this.dropZone.classList.toggle('has-file', !!picked);
+    this.pickedNameEl.textContent = picked?.name ?? '';
+    this.pickedMetaEl.textContent = picked ? formatSize(picked.data.length) : '';
+
+    const converting = picked ? this.shouldConvert(picked.name) : false;
+    this.convertNotice.hidden = !converting;
+    this.aiToggle.hidden = !converting;
+    this.aiOptionsEl.hidden = !converting || !this.aiCheckbox.checked;
+    this.uploadBtn.disabled = picked === null;
+    mountLucideIcons();
+  }
+
+  private syncAiOptions(): void {
+    this.aiOptionsEl.hidden = this.aiToggle.hidden || !this.aiCheckbox.checked;
+  }
+
+  private shouldConvert(name: string): boolean {
+    return hasAnyExtension(name, this.target.convertsFrom);
+  }
+
+  private async handleAttachModel(): Promise<void> {
+    let picked: LoadedRom | null;
+    try {
+      picked = await this.deps.filePicker.pick({ accept: ['.onnx'], validate: false });
+    } catch (err) {
+      this.setUploadStatus(`Failed: ${(err as Error).message}`);
+      return;
+    }
+    if (!picked) return;
+    this.attachedModel = { name: picked.name, bytes: picked.data };
+    this.attachedNameEl.textContent = `${picked.name} (${formatSize(picked.data.length)})`;
+    this.attachedRow.hidden = false;
+    mountLucideIcons();
+    this.setUploadStatus(`Attached ${picked.name}.`);
+  }
+
+  private detachModel(): void {
+    this.attachedModel = null;
+    this.attachedRow.hidden = true;
+    this.setUploadStatus('Detached custom model.');
+  }
+
+  private async handleUpload(): Promise<void> {
+    const picked = this.picked;
+    if (!picked) return;
+
+    if (this.shouldConvert(picked.name)) {
+      await this.uploadConverted(picked);
+    } else {
+      await this.uploadDirect(picked);
+    }
+  }
+
+  private async uploadDirect(rom: LoadedRom): Promise<void> {
+    try {
+      await this.deps.romLibrary.add(rom.name, rom.data);
+      await this.refreshBrowserList();
+      await this.deps.onLoaded(rom);
+      this.setStatus(`Loaded ${rom.name} (saved to browser storage)`);
+      this.closeAddView();
+    } catch (err) {
+      this.setUploadStatus(`Failed: ${(err as Error).message}`);
+    }
+  }
+
+  private async uploadConverted(rom: LoadedRom): Promise<void> {
+    const useAi = this.aiCheckbox.checked;
+    const baseTitle = rom.name
+      .replace(/\.[^.]+$/i, '')
+      .replace(/\s*\([^)]*\)/g, '')
+      .trim();
+
+    const isChrRam = rom.data[5] === 0;
+    let resultPoncho: Uint8Array;
+    let summary: string;
+    try {
+      if (useAi && isChrRam) {
+        const result = convertInesToPoncho(rom.data, { title: baseTitle });
+        resultPoncho = result.poncho;
+        summary = `CHR-RAM ${result.notes.chrRamKb} KB (runtime upscale fills lazily)`;
+      } else if (useAi) {
+        const aiResult = await this.runAiConvert(rom.data, baseTitle);
+        if (!aiResult) {
+          this.setUploadStatus('AI conversion cancelled.');
+          return;
+        }
+        resultPoncho = aiResult.poncho;
+        const n = aiResult.notes;
+        const tilesDone = n.apiCalls + n.cacheHits;
+        const partialPrefix = n.cancelled
+          ? `Cancelled at ${tilesDone} / ${n.uniqueTiles} tiles - partial saved. `
+          : '';
+        summary =
+          `${partialPrefix}native CHR ${n.chrKb} KB, ` +
+          `${n.uniqueTiles} unique tiles, ` +
+          `${n.failedTiles + n.cancelledTiles} fallbacks`;
+      } else {
+        const result = convertInesToPoncho(rom.data, { title: baseTitle });
+        resultPoncho = result.poncho;
+        const n = result.notes;
+        const chrLabel = n.chrRamKb > 0 ? `CHR-RAM ${n.chrRamKb} KB` : `CHR ${n.chrKb} KB`;
+        summary = `mapper ${n.sourceMapper}, ${chrLabel}, PRG ${n.prgKb} KB`;
+      }
+    } catch (err) {
+      if (err instanceof ConvertError) {
+        this.setUploadStatus(`Conversion failed: ${err.message}`);
+      } else {
+        this.setUploadStatus(`Conversion failed: ${(err as Error).message}`);
+      }
+      return;
+    }
+
+    const ponchoName = replaceExtension(rom.name, this.target.convertedExtension ?? '.poncho');
+    const convertedRom: LoadedRom = {
+      name: ponchoName,
+      source: `browser:${ponchoName}`,
+      data: resultPoncho,
+    };
+    try {
+      await this.deps.romLibrary.add(ponchoName, resultPoncho);
+      await this.refreshBrowserList();
+      await this.deps.onLoaded(convertedRom);
+    } catch (err) {
+      this.setUploadStatus(`Saved-to-library failed: ${(err as Error).message}`);
+      return;
+    }
+
+    this.setStatus(`Converted ${rom.name} to ${ponchoName} (${summary})`);
+    this.closeAddView();
+  }
+
+  private async runAiConvert(
+    inesBytes: Uint8Array,
+    baseTitle: string,
+  ): Promise<Awaited<ReturnType<typeof convertInesToPonchoAi>> | null> {
+    const modal = createAiProgressModal('...resolving model...');
+    document.body.appendChild(modal.root);
+
+    const baseCtx = this.deps.getUpscaleContext?.();
+    const ctx: UpscaleModelContext = {
+      ...(baseCtx ?? {}),
+      onModelLoadProgress: (p) => modal.setLoadingModel(p),
+      onSessionPhase: (phase) => modal.setSessionPhase(phase),
+    };
+
+    let client: UpscaleClient;
+    let modalLabel: string;
+    if (this.attachedModel) {
+      client = this.buildAttachedOnnxClient(this.attachedModel.bytes);
+      modalLabel = `Custom: ${this.attachedModel.name}`;
+    } else {
+      const resolved = createUpscaleClient(DEFAULT_UPSCALE_MODEL_ID, 'rom-bake', {}, ctx);
+      client = resolved.client;
+      modalLabel = resolved.model.label;
+    }
+    modal.setModelLabel(modalLabel);
+
+    const ctrl = new AbortController();
+    modal.onCancel(() => ctrl.abort());
+
+    try {
+      const result = await convertInesToPonchoAi(inesBytes, {
+        title: baseTitle,
+        client,
+        signal: ctrl.signal,
+        onProgress: (p) => modal.update(p),
+      });
+      modal.complete();
+      return result;
+    } catch (err) {
+      if (err instanceof AiConvertCancelled) return null;
+      throw err;
+    } finally {
+      modal.root.remove();
+    }
+  }
+
+  private buildAttachedOnnxClient(bytes: Uint8Array): UpscaleClient {
+    const cfg: OnnxUpscaleClientConfig = {
+      modelId: AI_CACHE_MODEL_UNSPECIFIED,
+      modelUrl: 'attached://custom.onnx',
+      executionProviders: ['webgpu', 'wasm'],
+      input: { size: 8, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]', pinName: 'input' },
+      output: { size: 32, layout: 'nchw', channelOrder: 'rgb', range: '[0..1]', pinName: 'output' },
+    };
+    const buf = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(buf).set(bytes);
+    return new OnnxUpscaleClient(cfg, {
+      modelLoader: async () => buf,
+    });
+  }
+}
+
+async function readRomFile(file: File, accept: readonly string[]): Promise<LoadedRom> {
+  assertAcceptedExtension(file.name, accept);
+  const buf = await file.arrayBuffer();
+  const data = new Uint8Array(buf);
+  validateRom(data);
+  return { name: file.name, source: `file:${file.name}`, data };
+}
+
+function assertAcceptedExtension(name: string, accept: readonly string[]): void {
+  if (hasAnyExtension(name, accept)) return;
+  throw new InvalidRomError(`File must be one of: ${accept.join(', ')}.`);
+}
+
+function makeRomTarget(consoleId: string, consoleName: string): RomTarget {
+  const target = ROM_TARGETS[consoleId] ?? ROM_TARGETS.nes!;
+  return { ...target, consoleName };
+}
+
+function hasAnyExtension(name: string, extensions: readonly string[]): boolean {
+  const lower = name.toLowerCase();
+  return extensions.some((ext) => lower.endsWith(ext));
+}
+
+function replaceExtension(name: string, ext: string): string {
+  return name.replace(/\.[^.]+$/i, '') + ext;
+}
+
+function renderAcceptHint(extensions: readonly string[]): string {
+  return `Accepts ${extensions.map((ext) => `<strong>${ext}</strong>`).join(', ')}`;
 }
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function createAiProgressModal(modelLabel: string): {
+  root: HTMLElement;
+  update(p: AiConvertProgress): void;
+  setLoadingModel(p: { loaded: number; total: number | null; fromCache: boolean }): void;
+  setSessionPhase(phase: 'compiling' | 'ready'): void;
+  setModelLabel(label: string): void;
+  complete(): void;
+  onCancel(fn: () => void): void;
+} {
+  const root = document.createElement('div');
+  root.className = 'ai-progress-overlay';
+  root.innerHTML = `
+    <div class="ai-progress-card">
+      <h3>AI upscale in progress</h3>
+      <p class="ai-progress-model">Model: <span data-model></span></p>
+      <div class="ai-progress-bar"><div class="ai-progress-fill" data-fill></div></div>
+      <p class="ai-progress-count" data-count>preparing...</p>
+      <p class="ai-progress-eta" data-eta>elapsed -, eta -</p>
+      <button type="button" class="ai-progress-cancel" data-cancel>Cancel</button>
+    </div>
+  `;
+  const modelEl = root.querySelector<HTMLSpanElement>('[data-model]')!;
+  modelEl.textContent = modelLabel;
+  const fill = root.querySelector<HTMLElement>('[data-fill]')!;
+  const count = root.querySelector<HTMLElement>('[data-count]')!;
+  const eta = root.querySelector<HTMLElement>('[data-eta]')!;
+  const cancel = root.querySelector<HTMLButtonElement>('[data-cancel]')!;
+  let cancelHandler: (() => void) | null = null;
+  cancel.addEventListener('click', () => cancelHandler?.());
+
+  const startedAt = performance.now();
+  let inferenceStarted = false;
+
+  return {
+    root,
+    setModelLabel(label) {
+      modelEl.textContent = label;
+    },
+    setLoadingModel(p) {
+      if (inferenceStarted) return;
+      const pct = p.total && p.total > 0 ? Math.floor((p.loaded / p.total) * 100) : 0;
+      fill.style.width = `${pct}%`;
+      const loadedMb = (p.loaded / (1024 * 1024)).toFixed(1);
+      const totalMb = p.total ? (p.total / (1024 * 1024)).toFixed(1) : '?';
+      count.textContent = p.fromCache
+        ? `Loading model from cache (${loadedMb} MB)...`
+        : `Downloading model: ${loadedMb} / ${totalMb} MB`;
+      eta.textContent = `elapsed ${formatDuration(performance.now() - startedAt)}`;
+    },
+    setSessionPhase(phase) {
+      if (inferenceStarted) return;
+      if (phase === 'compiling') {
+        fill.style.width = '100%';
+        count.textContent = 'Compiling model and warming up GPU...';
+      } else {
+        count.textContent = 'Model ready - starting tile inference...';
+      }
+      eta.textContent = `elapsed ${formatDuration(performance.now() - startedAt)}`;
+    },
+    update(p) {
+      inferenceStarted = true;
+      const pct = p.total === 0 ? 100 : Math.floor((p.done / p.total) * 100);
+      fill.style.width = `${pct}%`;
+      count.textContent = `${p.done} / ${p.total} tiles - ${p.cached} cached - ${p.failed} fallbacks`;
+      const elapsedMs = performance.now() - startedAt;
+      const elapsed = formatDuration(elapsedMs);
+      let etaText = '-';
+      if (p.done > 0 && p.done < p.total) {
+        const perTile = elapsedMs / p.done;
+        etaText = formatDuration(perTile * (p.total - p.done));
+      } else if (p.done === p.total) {
+        etaText = '0s';
+      }
+      eta.textContent = `elapsed ${elapsed}, eta ${etaText}`;
+    },
+    complete() {
+      fill.style.width = '100%';
+      cancel.disabled = true;
+      cancel.textContent = 'Done';
+    },
+    onCancel(fn) { cancelHandler = fn; },
+  };
+}
+
+function formatDuration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rs = s - m * 60;
+  return `${m}m ${rs.toString().padStart(2, '0')}s`;
 }

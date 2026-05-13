@@ -6,7 +6,7 @@
  *     a thematic accent is wanted. Lucide ships as ESM, so individual
  *     imports tree-shake cleanly. See https://lucide.dev.
  *   - **Game Icons** (CC BY 3.0) — a small set of game-themed SVGs in
- *     `./icons-game/` (cassette, gamepad, controller, joystick, save).
+ *     `./icons-game/` (cartridge, cassette, gamepad, controller, joystick, save).
  *     Their canonical format is "negative space": a solid black 512x512
  *     background plus a white foreground. We strip the background and
  *     swap the white fill for `currentColor` at runtime so they tint
@@ -21,15 +21,20 @@
  */
 import {
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Cpu,
+  FilePlus2,
   Folder,
   HardDrive,
   Keyboard,
   Link,
   Monitor,
+  PackageOpen,
+  Paperclip,
   Pause,
   Play,
+  Plus,
   Power,
   RotateCcw,
   Settings,
@@ -42,6 +47,7 @@ import {
   createIcons,
 } from 'lucide';
 
+import cartridgeSvg from './icons-game/cartridge.svg?raw';
 import cassetteSvg from './icons-game/cassette.svg?raw';
 import gamepadSvg from './icons-game/gamepad.svg?raw';
 import joystickSvg from './icons-game/joystick.svg?raw';
@@ -57,15 +63,20 @@ export function mountLucideIcons(): void {
   createIcons({
     icons: {
       ChevronDown,
+      ChevronLeft,
       ChevronRight,
       Cpu,
+      FilePlus2,
       Folder,
       HardDrive,
       Keyboard,
       Link,
       Monitor,
+      PackageOpen,
+      Paperclip,
       Pause,
       Play,
+      Plus,
       Power,
       RotateCcw,
       Settings,
@@ -81,6 +92,7 @@ export function mountLucideIcons(): void {
 }
 
 export type GameIconName =
+  | 'cartridge'
   | 'cassette'
   | 'gamepad'
   | 'joystick'
@@ -88,6 +100,7 @@ export type GameIconName =
   | 'save';
 
 const GAME_ICON_SOURCES: Record<GameIconName, string> = {
+  cartridge: cartridgeSvg,
   cassette: cassetteSvg,
   gamepad: gamepadSvg,
   joystick: joystickSvg,

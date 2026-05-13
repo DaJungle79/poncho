@@ -1,5 +1,5 @@
 import type { ConsoleSpec } from '../../../../console/console';
-import { mountLucideIcons } from '../icons';
+import { gameIcon, mountLucideIcons } from '../icons';
 import type { Panel } from '../panel-stack';
 
 export interface ConsolesPanelDeps {
@@ -9,6 +9,10 @@ export interface ConsolesPanelDeps {
   initialSelectedId: string;
   /** Called when the user picks a different console. */
   onSelect: (spec: ConsoleSpec) => void;
+  /** Called when the user opens/closes the ROM bay for a console. */
+  onToggleRoms: (spec: ConsoleSpec) => void;
+  /** Called when the Consoles panel becomes visible again. */
+  onShow?: () => void;
 }
 
 /**
@@ -25,7 +29,8 @@ export class ConsolesPanel implements Panel {
   readonly root: HTMLElement;
 
   private selectedId: string;
-  private readonly entries = new Map<string, HTMLButtonElement>();
+  private romsOpenId: string | null = null;
+  private readonly entries = new Map<string, { card: HTMLElement; romsButton: HTMLButtonElement }>();
 
   constructor(private readonly deps: ConsolesPanelDeps) {
     this.selectedId = deps.initialSelectedId;
@@ -51,11 +56,14 @@ export class ConsolesPanel implements Panel {
       const li = document.createElement('li');
       li.className = 'console-item';
 
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'console-btn';
-      button.dataset.consoleId = spec.id;
-      button.innerHTML = `
+      const card = document.createElement('div');
+      card.className = 'console-card';
+      card.dataset.consoleId = spec.id;
+
+      const mainButton = document.createElement('button');
+      mainButton.type = 'button';
+      mainButton.className = 'console-main-btn';
+      mainButton.innerHTML = `
         <div class="console-row-top">
           <span class="console-name">${escapeHtml(spec.fullName)}</span>
           <span class="console-status console-status-${spec.status}">${spec.status}</span>
@@ -66,10 +74,22 @@ export class ConsolesPanel implements Panel {
           <span>${escapeHtml(spec.cart.format)} (<code>${escapeHtml(spec.cart.magic)}</code>)</span>
         </div>
       `;
-      button.addEventListener('click', () => this.handleClick(spec));
+      mainButton.addEventListener('click', () => this.handleClick(spec));
 
-      this.entries.set(spec.id, button);
-      li.appendChild(button);
+      const romsButton = document.createElement('button');
+      romsButton.type = 'button';
+      romsButton.className = 'console-roms-btn';
+      romsButton.title = 'ROMs';
+      romsButton.setAttribute('aria-label', `${spec.name} ROMs`);
+      const cartIcon = gameIcon('cartridge');
+      cartIcon.setAttribute('width', '16');
+      cartIcon.setAttribute('height', '16');
+      romsButton.append(cartIcon, document.createTextNode('ROMs'));
+      romsButton.addEventListener('click', () => this.handleRomsClick(spec));
+
+      this.entries.set(spec.id, { card, romsButton });
+      card.append(mainButton, romsButton);
+      li.appendChild(card);
       list.appendChild(li);
     }
 
@@ -77,9 +97,23 @@ export class ConsolesPanel implements Panel {
     mountLucideIcons();
   }
 
+  onHide(): void {
+    this.setRomsOpen(null);
+  }
+
+  onShow(): void {
+    this.deps.onShow?.();
+  }
+
   /** Update the panel's visible-selection without firing onSelect. */
   setSelected(id: string): void {
     this.selectedId = id;
+    this.applySelection();
+  }
+
+  /** Update which console's ROM bay is visibly open. */
+  setRomsOpen(id: string | null): void {
+    this.romsOpenId = id;
     this.applySelection();
   }
 
@@ -90,9 +124,15 @@ export class ConsolesPanel implements Panel {
     this.deps.onSelect(spec);
   }
 
+  private handleRomsClick(spec: ConsoleSpec): void {
+    this.deps.onToggleRoms(spec);
+  }
+
   private applySelection(): void {
-    for (const [id, btn] of this.entries) {
-      btn.classList.toggle('selected', id === this.selectedId);
+    for (const [id, entry] of this.entries) {
+      entry.card.classList.toggle('selected', id === this.selectedId);
+      entry.romsButton.classList.toggle('selected', id === this.romsOpenId);
+      entry.romsButton.setAttribute('aria-pressed', id === this.romsOpenId ? 'true' : 'false');
     }
   }
 }

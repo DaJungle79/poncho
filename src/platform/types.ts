@@ -107,6 +107,11 @@ export interface FilePickerOptions {
    * or `['.nes', '.poncho']`. Default: `['.nes']`.
    */
   accept?: string[];
+  /**
+   * Run ROM magic validation before resolving. Defaults to true. Non-ROM
+   * assets, such as attached ONNX upscale models, set this to false.
+   */
+  validate?: boolean;
 }
 
 export interface FilePicker {

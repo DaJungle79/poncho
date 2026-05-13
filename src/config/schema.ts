@@ -2,9 +2,10 @@ import type { NesButton } from '../core/input/source';
 import type { ScalerId } from '../renderer/scalers';
 import type { FilterId } from '../renderer/filters';
 
-export const CONFIG_VERSION = 2;
+export const CONFIG_VERSION = 3;
 
 export type KeyBindings = Record<string, NesButton>;
+export type InputType = 'keyboard' | 'gamepad' | 'virtual';
 
 export interface OverscanConfig {
   enabled: boolean;
@@ -28,6 +29,8 @@ export interface AudioConfig {
 }
 
 export interface InputConfig {
+  player1Type: InputType;
+  player2Type: InputType;
   player1Keys: KeyBindings;
   player2Keys: KeyBindings;
 }
@@ -37,7 +40,7 @@ export type ThemeId = 'dark' | 'light';
 export interface GeneralConfig {
   lastRomUrl: string | null;
   theme: ThemeId;
-  showStatusBar: boolean;
+  showFps: boolean;
   /** Active virtual console (id from `src/console/specs.ts`). */
   selectedConsoleId: string;
 }

@@ -1,11 +1,12 @@
 # Game Icons attribution
 
-The SVG files in this directory are sourced from
+Most SVG files in this directory are sourced from
 [game-icons.net](https://game-icons.net) and licensed under
 [Creative Commons BY 3.0](https://creativecommons.org/licenses/by/3.0/).
 
 | File | Author |
 |---|---|
+| `cartridge.svg` | Poncho project |
 | `cassette.svg` | [Delapouite](https://delapouite.com) |
 | `gamepad.svg` | [Delapouite](https://delapouite.com) |
 | `joystick.svg` | [Delapouite](https://delapouite.com) |

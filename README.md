@@ -32,10 +32,10 @@ npm run setup          # optional — copies ONNX runtime sidecars (only needed 
 npm run dev
 ```
 
-Open <http://localhost:5173>. Click the cassette icon in the left sidebar to open the **ROMs** panel, then either:
+Open <http://localhost:5173>. The **Consoles** panel opens first. Use the **ROMs** button on a console card to show or hide that console's ROM bay, then either:
 
-- **Upload a `.nes` file** — saved to the browser permanently (IndexedDB), survives reloads
-- **Drop a file in `roms/`** — appears under "Server" while the dev server is running
+- **Add a ROM** — opens a local add view with a drop zone; uploaded ROMs are saved to local storage (IndexedDB), surviving reloads
+- **Drop a file in `roms/`** — appears under "Server storage" while the dev server is running
 
 (Poncho doesn't ship any games. Bring your own.)
 
@@ -52,20 +52,24 @@ Open <http://localhost:5173>. Click the cassette icon in the left sidebar to ope
 ### User interface
 
 - **Retro NES aesthetic** 
-- **Light + dark themes** — switchable in Settings, persisted across reloads
-- **Rebindable keyboard controls** — click any binding, press the new key
+- **Light + dark themes** — switchable from the Settings icon in the sidebar, persisted across reloads
+- **Console-aware settings** — Video controls are separated below global settings and explain when the selected console does not support them
+- **Optional floating FPS readout** — shown at the top-right of the workspace and toggled from Settings → Appearance
+- **Readable workspace notifications** — status messages appear at the bottom-right, replace one another, and dismiss automatically after enough reading time
+- **Stateful pause control** — the sidebar Pause action highlights while paused and changes to Play for resume
+- **Top-level input setup** — open Input - Player 1 or Input - Player 2 from the sidebar to choose input type and edit mappings
 - **Adjustable scale** (1×, 2×, 4× nearest-neighbour) and audio volume
 
 ### ROM management
 
-- **Browser storage** — uploaded `.nes` files across browser sessions; s
-- **Server folder** — files placed in `roms/` are served by the Vite dev middleware (development only)
+- **Local storage** — uploaded ROMs persist across browser sessions; Classic NES stores `.nes`, while Poncho-NES stores `.poncho`
+- **Server storage** — files placed in `roms/` are served by the Vite dev middleware (development only)
 
 ### AI upscale (Poncho-NES, v0.4) Alpha!
 
 - **Pluggable upscale model registry** — `src/convert/upscale-registry.ts` is the single source of truth. The shipped UI registers only the deterministic 4× nearest-neighbour fallback; ESRGAN, AnimeSharp, and SPAN-x4 were prototyped but didn't pass the quality bar on pixel-art primer (see [`docs/v0.4.0-plan.md`](docs/v0.4.0-plan.md) Phase 5a notes).
-- **Convert .nes → .poncho** — open the L3 **Convert .nes** panel, pick a `.nes` file, leave **Upscale** ticked, optionally **Attach a custom model (.onnx)**, click Convert. CHR-ROM games go through the bake-now pipeline (every unique tile is processed and embedded in the `.poncho` AI cache section); CHR-RAM games are wrapped verbatim and the runtime worker fills the cache lazily during play.
-- **Custom-model attach** — the **Convert .nes** panel accepts a user-supplied `.onnx` file. The wiring assumes the standard pixel-art SR contract (8×8 → 32×32, NCHW, RGB, [0..1] fp32, pin names `input`/`output`). Mismatched models surface a clear error from `OnnxUpscaleClient`'s preflight instead of silently NN-falling-back every tile.
+- **Convert .nes → .poncho** — open **Consoles**, show the Poncho-NES **ROMs** bay, click **Add ROM**, and drop or pick a `.nes` file. The add view explains that the ROM will be converted, shows **Upscale**, and then saves the resulting `.poncho` into browser storage. CHR-ROM games go through the bake-now pipeline (every unique tile is processed and embedded in the `.poncho` AI cache section); CHR-RAM games are wrapped verbatim and the runtime worker fills the cache lazily during play.
+- **Custom-model attach** — the Poncho-NES add flow accepts a user-supplied `.onnx` file when **Upscale** is enabled for a `.nes` conversion. The wiring assumes the standard pixel-art SR contract (8×8 → 32×32, NCHW, RGB, [0..1] fp32, pin names `input`/`output`). Mismatched models surface a clear error from `OnnxUpscaleClient`'s preflight instead of silently NN-falling-back every tile.
 - **Self-upgrading `.poncho` file** — runtime upscales are written back into the cartridge's AI cache section (every 60 s + on cart eject), so each session bakes a few more tiles permanently. Subsequent plays start from that cache; eventually AI work drops to zero.
 - **Node-side ESRGAN/SPAN bake CLI** — `npm run poncho:convert -- <input.nes> --model Real-ESRGAN-x4plus` runs `OnnxUpscaleClient` through `onnxruntime-node` (CoreML on macOS, CPU fallback). Bypasses the browser entirely. See `npx tsx scripts/poncho-convert.ts --help` for the full flag list.
 - **Adding a new model in code**: implement `UpscaleClient` (or reuse `OnnxUpscaleClient` with a different config), allocate a numeric `cacheModelId` in `ai-cache.ts`, register the `UpscaleModel` definition in `upscale-registry.ts`.
@@ -92,19 +96,31 @@ Audio is muted until you interact with the page — that's a browser autoplay po
 
 ### Default controls
 
+Player 1:
+
 ```
    ↑ ↓ ← →     D-pad
-       Z       B
-       X       A
-       C       Select
-       V       Start
+       /       B
+       .       A
+       [       Select
+       ]       Start
 ```
 
-Rebind any binding under **Settings → Controls**.
+Player 2:
+
+```
+   W A S D     D-pad
+       B       B
+       V       A
+       Z       Select
+       X       Start
+```
+
+Rebind any binding from the sidebar **Input - Player 1** or **Input - Player 2** sections.
 
 ## Virtual consoles
 
-Poncho hosts more than one virtual console under one runtime. Each is a *composition* of chips from `src/core/` (CPU, PPU, APU, buses, mappers) wired together. Pick the active console from the sidebar (top icon, hotkey `0`).
+Poncho hosts more than one virtual console under one runtime. Each is a *composition* of chips from `src/core/` (CPU, PPU, APU, buses, mappers) wired together. Pick the active console from the sidebar (top icon, hotkey `` ` ``), then use the console card's **ROMs** button to load cartridges for that console.
 
 | | NES (working) | Poncho-NES (beta) |
 |---|---|---|

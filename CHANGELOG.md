@@ -7,6 +7,25 @@ and the project loosely tracks [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+### Changed - UI/UX ROM add flow
+
+- **Settings moved up the sidebar** - the Settings icon now sits directly below Consoles instead of at the bottom of the menu, making configuration easier to find.
+- **Settings global/per-console separation** - Settings now keeps global Appearance and Audio first, then separates console-specific Video with a divider and title-matched spacing.
+- **Floating FPS readout** - the FPS indicator now sits independently at the top-right of the workspace with an Appearance setting to show or hide it.
+- **Workspace notifications** - status messages now appear as one-at-a-time bottom-right notifications, stay visible based on message length plus a reading buffer, fade out, and dismiss immediately on click.
+- **Stateful Pause control** - the Pause sidebar action now uses the selected-menu background while paused and switches to a Play icon/Resume tooltip.
+- **Sidebar shortcuts remapped** - Consoles now opens with `` ` ``, Input - Player 1 with `1`, Input - Player 2 with `2`, Settings with `0`, and Pause with `PauseBreak`. Reset and Off / Eject no longer have keyboard shortcuts.
+- **Sidebar shortcut hints softened** - menu tooltips now show shortcuts in subtle square-bracket hints, keeping the main label more readable.
+- **Per-player Input panels** - Input is now split into top-level Input - Player 1 and Input - Player 2 sidebar items with P1/P2 icon badges. Each panel combines an Input type dropdown with that player's keyboard mappings, and the web shell now wires both NES controller ports.
+- **Two-player default mappings** - Player 1 defaults to arrow keys plus `/`, `.`, `[`, `]`; Player 2 defaults to WASD plus `B`, `V`, `Z`, `X`.
+- **Settings Video availability clarified** - when Poncho-NES is selected, the Video section now remains visible and shows an unavailable-state hint instead of disappearing.
+- **ROMs move under Consoles** - the standalone ROMs sidebar item is gone. The app now opens on Consoles, and each console card has a selected-state ROMs button to show/hide that console's adjacent ROM bay.
+- **ROMs bay state is preserved while hidden** - the ROMs bay stays closed on first load, but once opened it returns with Consoles after dismissing the menu. Clicking outside the menu closes Consoles and ROMs together.
+- **ROM storage labels aligned** - ROM lists now use `Local storage` and `Server storage`, with consistent empty-state text.
+- **Cartridge icon for ROMs** - the console card ROMs button now uses a cartridge-shaped SVG instead of the old cassette icon.
+- **ROMs panel Add ROM subview** - the old inline Upload / Convert buttons are replaced by one stable `Add ROM` action at the top of the ROMs panel. It toggles a darker local `Add new ROM` subview with a drag-and-drop zone, click-to-pick fallback, selected-file summary, and Esc-to-close behavior.
+- **Unified upload + conversion** - Classic NES accepts `.nes`; Poncho-NES accepts `.poncho` directly and `.nes` via client-side conversion to `.poncho`. The Upscale checkbox and optional custom ONNX model attach appear only when the selected Poncho-NES file needs conversion.
+
 ### Added — v0.5 phase 5: settings UI + scaler defaults
 
 - **Scaler dropdown groups** — the Scale selector in Settings is now split into three `<optgroup>`s: Nearest-neighbour (1×/2×/4×), xBRZ (2×–6×), and MMPX (2×). A hint below the selector describes the tradeoff.

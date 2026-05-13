@@ -39,7 +39,7 @@ export class WebFilePicker implements FilePicker {
         try {
           const buf = await file.arrayBuffer();
           const data = new Uint8Array(buf);
-          validateRom(data);
+          if (options?.validate !== false) validateRom(data);
           resolve({ name: file.name, source: `file:${file.name}`, data });
         } catch (err) {
           reject(err);

@@ -1,17 +1,17 @@
 import type { PanelStack } from './panel-stack';
 
 /**
- * Thin left-side icon nav. The first item lives at the top of the
- * sidebar, the last item at the bottom (separated by a flexible spacer).
+ * Thin left-side icon nav. Items can live in the top or bottom group,
+ * separated by a flexible spacer.
  *
  * Two kinds of items:
  *   - Panel items (`panelId`): clicking toggles an L2 panel.
  *   - Action items (`onClick`): clicking fires a callback (Pause / Reset /
  *     Off / etc.). No panel is opened.
  *
- * An optional `hotkey` (single character, typically "1"-"9") binds a
- * top-level keyboard shortcut: pressing the key triggers the same action
- * as a click. Skipped while the user is typing in an input.
+ * An optional `hotkey` binds a top-level keyboard shortcut: pressing the
+ * matching KeyboardEvent key or code triggers the same action as a click.
+ * Skipped while the user is typing in an input.
  */
 
 interface SidebarItemBase {
@@ -20,8 +20,10 @@ interface SidebarItemBase {
   position: 'top' | 'bottom';
   /** Returns a fresh icon element each call. */
   icon: () => Element;
-  /** Optional keyboard shortcut (e.g. "1", "p"). Shown in tooltip. */
+  /** Optional keyboard shortcut (e.g. "`", "1", "PauseBreak"). Shown in tooltip. */
   hotkey?: string;
+  /** Adds one button-height gap before this item. */
+  separated?: boolean;
 }
 
 export type SidebarItem =
@@ -64,11 +66,13 @@ export class Sidebar {
   add(item: SidebarItem): void {
     const button = document.createElement('button');
     button.className = 'sidebar-btn';
+    if (item.separated) button.classList.add('sidebar-btn-separated');
     button.type = 'button';
-    const tooltip = item.hotkey ? `${item.label} (${item.hotkey})` : item.label;
+    const tooltip = formatTooltipText(item.label, item.hotkey);
     // dataset.tooltip drives the CSS tooltip; aria-label keeps it accessible.
     // No `title` attribute — that gives a slow native tooltip we don't want.
-    button.dataset.tooltip = tooltip;
+    button.dataset.tooltipLabel = item.label;
+    if (item.hotkey) button.dataset.tooltipHotkey = item.hotkey;
     button.setAttribute('aria-label', tooltip);
     button.dataset.id = item.id;
     if (item.hotkey) button.dataset.hotkey = item.hotkey;
@@ -82,13 +86,13 @@ export class Sidebar {
     }
     // Read tooltip from dataset on each event so dynamic updates via
     // `setTooltip()` are picked up without rebinding handlers.
-    button.addEventListener('mouseenter', () => this.showTooltip(button, button.dataset.tooltip ?? ''));
+    button.addEventListener('mouseenter', () => this.showTooltip(button));
     button.addEventListener('mouseleave', () => this.hideTooltip());
-    button.addEventListener('focus', () => this.showTooltip(button, button.dataset.tooltip ?? ''));
+    button.addEventListener('focus', () => this.showTooltip(button));
     button.addEventListener('blur', () => this.hideTooltip());
     (item.position === 'top' ? this.topRow : this.bottomRow).appendChild(button);
     this.buttons.set(item.id, button);
-    if (item.hotkey) this.hotkeys.set(item.hotkey.toLowerCase(), button);
+    if (item.hotkey) this.hotkeys.set(normalizeHotkey(item.hotkey), button);
   }
 
   /**
@@ -99,12 +103,24 @@ export class Sidebar {
     const button = this.buttons.get(id);
     if (!button) return;
     const hotkey = button.dataset.hotkey;
-    const text = hotkey ? `${label} (${hotkey})` : label;
-    button.dataset.tooltip = text;
+    const text = formatTooltipText(label, hotkey);
+    button.dataset.tooltipLabel = label;
     button.setAttribute('aria-label', text);
     if (this.tooltip.classList.contains('visible')) {
-      this.tooltip.textContent = text;
+      this.renderTooltip(button);
     }
+  }
+
+  setActive(id: string, active: boolean): void {
+    const button = this.buttons.get(id);
+    if (!button || button.dataset.panel) return;
+    button.classList.toggle('active', active);
+  }
+
+  setIcon(id: string, icon: Element): void {
+    const button = this.buttons.get(id);
+    if (!button) return;
+    button.replaceChildren(icon);
   }
 
   /** Reflect the stack's current selection in the visible "active" state. */
@@ -112,7 +128,9 @@ export class Sidebar {
     const active = this.stack.activeL2();
     for (const btn of this.buttons.values()) {
       const panelId = btn.dataset.panel;
-      btn.classList.toggle('active', panelId !== undefined && panelId === active);
+      if (panelId !== undefined) {
+        btn.classList.toggle('active', panelId === active);
+      }
     }
   }
 
@@ -121,12 +139,24 @@ export class Sidebar {
     this.syncActive();
   }
 
-  private showTooltip(button: HTMLButtonElement, text: string): void {
+  private showTooltip(button: HTMLButtonElement): void {
     const rect = button.getBoundingClientRect();
-    this.tooltip.textContent = text;
+    this.renderTooltip(button);
     this.tooltip.style.left = `${rect.right + 8}px`;
     this.tooltip.style.top = `${rect.top + rect.height / 2}px`;
     this.tooltip.classList.add('visible');
+  }
+
+  private renderTooltip(button: HTMLButtonElement): void {
+    const label = button.dataset.tooltipLabel ?? '';
+    const hotkey = button.dataset.tooltipHotkey;
+    this.tooltip.replaceChildren(document.createTextNode(label));
+    if (!hotkey) return;
+
+    const shortcut = document.createElement('span');
+    shortcut.className = 'sidebar-tooltip-shortcut';
+    shortcut.textContent = ` [${hotkey}]`;
+    this.tooltip.append(shortcut);
   }
 
   private hideTooltip(): void {
@@ -145,13 +175,22 @@ export class Sidebar {
       if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       if (target && isEditable(target)) return;
-      const key = event.key.toLowerCase();
-      const button = this.hotkeys.get(key);
+      const button = this.hotkeys.get(normalizeHotkey(event.key)) ?? this.hotkeys.get(normalizeHotkey(event.code));
       if (!button) return;
       event.preventDefault();
       button.click();
     });
   }
+}
+
+function normalizeHotkey(value: string): string {
+  const normalized = value.toLowerCase();
+  if (normalized === 'pausebreak') return 'pause';
+  return normalized;
+}
+
+function formatTooltipText(label: string, hotkey?: string): string {
+  return hotkey ? `${label} [${hotkey}]` : label;
 }
 
 function isEditable(el: HTMLElement): boolean {

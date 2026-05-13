@@ -22,8 +22,8 @@ const app = new App(platform, {
   panelL2Host: $<HTMLElement>('panel-l2-host'),
   panelL3Host: $<HTMLElement>('panel-l3-host'),
   canvas: $<HTMLCanvasElement>('screen'),
-  statusEl: $<HTMLSpanElement>('status-text'),
-  fpsEl: $<HTMLSpanElement>('fps'),
+  statusEl: $<HTMLButtonElement>('status-text'),
+  fpsEl: $<HTMLDivElement>('fps'),
   gameTitleEl: $<HTMLDivElement>('game-title'),
 });
 app.run();

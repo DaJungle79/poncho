@@ -19,6 +19,7 @@ import { createUpscaleClient } from '../../convert/upscale-registry';
 import { UpscaleWorker } from '../../runtime/upscale-worker';
 import type { ConsoleSpec } from '../../console/console';
 import { KeyboardSource } from '../../core/input/keyboard-source';
+import type { KeyBindings } from '../../config/schema';
 import { ConfigStore } from '../../config/store';
 import { Canvas2DRenderer } from '../../renderer/canvas-renderer';
 import { createScaler } from '../../renderer/scalers';
@@ -33,7 +34,6 @@ import { ConsolesPanel } from './ui/panels/consoles-panel';
 import { RomsPanel } from './ui/panels/roms-panel';
 import { SettingsPanel } from './ui/panels/settings-panel';
 import { ControlsPanel } from './ui/panels/controls-panel';
-import { ConvertPanel } from './ui/panels/convert-panel';
 import { RomInfoClient } from '../../rom/info-client';
 import type { LoadedRom, RomMeta } from '../../domain/rom';
 import type { Platform } from '../../platform/types';
@@ -50,8 +50,8 @@ export interface AppDom {
   panelL2Host: HTMLElement;
   panelL3Host: HTMLElement;
   canvas: HTMLCanvasElement;
-  statusEl: HTMLSpanElement;
-  fpsEl: HTMLSpanElement;
+  statusEl: HTMLButtonElement;
+  fpsEl: HTMLDivElement;
   gameTitleEl: HTMLDivElement;
 }
 
@@ -61,22 +61,27 @@ export class App {
   /** Active virtual console. Replaced when the user picks a different one. */
   nes: Nes | PonchoNes;
   readonly renderer: Canvas2DRenderer;
-  readonly keyboard: KeyboardSource;
+  readonly keyboard1: KeyboardSource;
+  readonly keyboard2: KeyboardSource;
   readonly romInfo: RomInfoClient;
 
   // ----- UI ---------------------------------------------------------------
   private readonly stack: PanelStack;
   private readonly sidebar: Sidebar;
+  private readonly consolesPanel: ConsolesPanel;
   private readonly romsPanel: RomsPanel;
   private readonly settingsPanel: SettingsPanel;
 
   // ----- Run-loop state ---------------------------------------------------
   private activeConsoleId: string;
+  private romsOpenConsoleId: string | null = null;
   private powered = false;
   private paused = false;
   private lastFrameTs = 0;
   private fpsAccum = 0;
   private fpsFrames = 0;
+  private statusHideTimer: ReturnType<typeof setTimeout> | null = null;
+  private statusFadeTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly audioBuffer = new Float32Array(2048);
 
   // ----- DOM refs ---------------------------------------------------------
@@ -107,7 +112,7 @@ export class App {
     // ----- Config (with theme applied to <html>) -------------------------
     this.config = new ConfigStore(platform.configStorage);
     this.applyTheme(this.config.get().general.theme);
-    this.applyStatusBar(this.config.get().general.showStatusBar);
+    this.applyFps(this.config.get().general.showFps);
 
     // ----- Emulator + renderer ------------------------------------------
     this.activeConsoleId = this.config.get().general.selectedConsoleId;
@@ -115,8 +120,10 @@ export class App {
     this.renderer = new Canvas2DRenderer(dom.canvas);
     this.renderer.setPipeline(this.buildPipeline());
 
-    this.keyboard = new KeyboardSource(this.config.get().input.player1Keys);
-    this.nes.setController(1, this.keyboard);
+    this.keyboard1 = new KeyboardSource(this.config.get().input.player1Keys);
+    this.keyboard2 = new KeyboardSource(this.config.get().input.player2Keys);
+    this.nes.setController(1, this.keyboard1);
+    this.nes.setController(2, this.keyboard2);
 
     this.romInfo = new RomInfoClient(platform.romInfoStorage);
 
@@ -125,12 +132,14 @@ export class App {
     this.sidebar = new Sidebar(this.stack);
     dom.sidebarHost.appendChild(this.sidebar.root);
 
-    const consolesPanel = new ConsolesPanel({
+    this.consolesPanel = new ConsolesPanel({
       specs: ALL_SPECS,
       initialSelectedId: this.config.get().general.selectedConsoleId,
       onSelect: (spec) => this.selectConsole(spec),
+      onToggleRoms: (spec) => this.toggleConsoleRoms(spec),
+      onShow: () => this.restoreConsoleRoms(),
     });
-    this.stack.registerL2(consolesPanel);
+    this.stack.registerL2(this.consolesPanel);
 
     this.romsPanel = new RomsPanel({
       romLibrary: platform.romLibrary,
@@ -138,39 +147,6 @@ export class App {
       filePicker: platform.filePicker,
       onLoaded: (rom) => this.loadRom(rom),
       onStatus: (text) => this.setStatus(text),
-      onOpenConvert: () => this.stack.toggleL3('convert'),
-    });
-    this.stack.registerL2(this.romsPanel);
-    const initialSpec = ALL_SPECS.find((s) => s.id === this.config.get().general.selectedConsoleId) ?? ALL_SPECS[0]!;
-    this.romsPanel.setConsoleId(initialSpec.id, initialSpec.name);
-
-    this.settingsPanel = new SettingsPanel({
-      config: this.config,
-      onOpenControls: () => this.stack.toggleL3('controls'),
-      onConfigChanged: (cfg) => {
-        this.renderer.setPipeline(this.buildPipeline());
-        this.platform.audio.setVolume(cfg.audio.volume);
-        this.platform.audio.setMuted(cfg.audio.muted);
-        this.applyTheme(cfg.general.theme);
-        this.applyStatusBar(cfg.general.showStatusBar);
-      },
-    });
-    this.stack.registerL2(this.settingsPanel);
-    // Apply scaler availability for the boot-time console (poncho-nes
-    // restricts to 1× since its native frame is already 1024×960).
-    this.settingsPanel.setConsoleId(this.config.get().general.selectedConsoleId);
-
-    const controlsPanel = new ControlsPanel({
-      config: this.config,
-      onBindingsChanged: (bindings) => this.keyboard.setBindings(bindings),
-    });
-    this.stack.registerL3(controlsPanel);
-
-    const convertPanel = new ConvertPanel({
-      config: this.config,
-      filePicker: platform.filePicker,
-      romLibrary: platform.romLibrary,
-      getModelConfig: (id) => this.config.get().ai.modelConfig[id] ?? {},
       getUpscaleContext: () => {
         const cache = this.platform.modelAssetCache;
         if (!cache) return undefined;
@@ -179,41 +155,78 @@ export class App {
           evictAsset: (url) => cache.remove(url),
         };
       },
-      onStatus: (text) => this.setStatus(text),
-      onConverted: () => this.romsPanel.refreshBrowserList(),
-      onClose: () => {
-        this.stack.closeAll();
-        this.sidebar.syncActive();
+    });
+    this.stack.registerL3(this.romsPanel);
+    const initialSpec = ALL_SPECS.find((s) => s.id === this.config.get().general.selectedConsoleId) ?? ALL_SPECS[0]!;
+    this.romsPanel.setConsoleId(initialSpec.id, initialSpec.name);
+
+    this.settingsPanel = new SettingsPanel({
+      config: this.config,
+      onConfigChanged: (cfg) => {
+        this.renderer.setPipeline(this.buildPipeline());
+        this.platform.audio.setVolume(cfg.audio.volume);
+        this.platform.audio.setMuted(cfg.audio.muted);
+        this.applyTheme(cfg.general.theme);
+        this.applyFps(cfg.general.showFps);
       },
     });
-    this.stack.registerL3(convertPanel);
+    this.stack.registerL2(this.settingsPanel);
+    // Apply scaler availability for the boot-time console (poncho-nes
+    // restricts to 1× since its native frame is already 1024×960).
+    this.settingsPanel.setConsoleId(this.config.get().general.selectedConsoleId);
+
+    const inputPlayer1Panel = new ControlsPanel({
+      config: this.config,
+      player: 1,
+      onBindingsChanged: (player, bindings) => this.updateKeyboardBindings(player, bindings),
+    });
+    this.stack.registerL2(inputPlayer1Panel);
+
+    const inputPlayer2Panel = new ControlsPanel({
+      config: this.config,
+      player: 2,
+      onBindingsChanged: (player, bindings) => this.updateKeyboardBindings(player, bindings),
+    });
+    this.stack.registerL2(inputPlayer2Panel);
 
     this.sidebar.add({
       id: 'consoles',
       panelId: 'consoles',
       label: this.consoleLabelFromId(this.config.get().general.selectedConsoleId),
       position: 'top',
-      hotkey: '0',
+      hotkey: '`',
       icon: () => lucide('cpu'),
     });
     this.sidebar.add({
-      id: 'roms',
-      panelId: 'roms',
-      label: `${initialSpec.name} ROMs`,
+      id: 'input-p1',
+      panelId: 'input-p1',
+      label: 'Input - Player 1',
       position: 'top',
       hotkey: '1',
-      icon: () => {
-        const el = gameIcon('cassette');
-        el.setAttribute('width', '22');
-        el.setAttribute('height', '22');
-        return el;
-      },
+      icon: () => playerInputIcon(1),
+    });
+    this.sidebar.add({
+      id: 'input-p2',
+      panelId: 'input-p2',
+      label: 'Input - Player 2',
+      position: 'top',
+      hotkey: '2',
+      icon: () => playerInputIcon(2),
+    });
+    this.sidebar.add({
+      id: 'settings',
+      panelId: 'settings',
+      label: 'Settings',
+      position: 'top',
+      hotkey: '0',
+      icon: () => lucide('settings'),
     });
     this.sidebar.add({
       id: 'pause',
       label: 'Pause',
       position: 'top',
-      hotkey: '2',
+      hotkey: 'PauseBreak',
+      separated: true,
       icon: () => lucide('pause'),
       onClick: () => this.togglePause(),
     });
@@ -221,7 +234,6 @@ export class App {
       id: 'reset',
       label: 'Reset',
       position: 'top',
-      hotkey: '3',
       icon: () => lucide('rotate-ccw'),
       onClick: () => this.resetEmu(),
     });
@@ -229,34 +241,33 @@ export class App {
       id: 'off',
       label: 'Off / Eject',
       position: 'top',
-      hotkey: '4',
       icon: () => lucide('power'),
       onClick: () => this.togglePower(),
     });
-    this.sidebar.add({
-      id: 'settings',
-      panelId: 'settings',
-      label: 'Settings',
-      position: 'bottom',
-      hotkey: '5',
-      icon: () => lucide('settings'),
-    });
 
     mountLucideIcons();
+    dom.statusEl.addEventListener('click', () => this.hideStatus(false));
+    dom.statusEl.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        this.hideStatus(false);
+      }
+    });
 
-    // Open the ROMs panel on first load — user lands on something useful.
-    this.stack.openL2('roms');
+    // Open Consoles on first load; the ROM bay opens when the user clicks ROMs.
+    this.stack.openL2('consoles');
     this.sidebar.syncActive();
+    this.updatePauseControl();
 
-    this.keyboard.attach();
+    this.keyboard1.attach();
+    this.keyboard2.attach();
 
     // ----- Click-outside dismissal of L2/L3 ------------------------------
     const layoutMain = document.querySelector<HTMLElement>('.layout-main')!;
     layoutMain.addEventListener('click', () => {
-      if (this.stack.activeL3()) {
-        this.stack.closeL3();
-      } else if (this.stack.activeL2()) {
+      if (this.stack.activeL2()) {
         this.stack.closeAll();
+        this.consolesPanel.setRomsOpen(null);
         this.sidebar.syncActive();
       }
     });
@@ -304,6 +315,7 @@ export class App {
       this.maybeStartAiWorker(rom);
       this.powered = true;
       this.paused = false;
+      this.updatePauseControl();
       this.config.update((c) => ({ ...c, general: { ...c.general, lastRomUrl: rom.source } }));
       this.setStatus(
         `Loaded ${rom.name} · mapper ${this.nes.cartridge?.mapper.id} (${this.nes.cartridge?.mapper.name})`,
@@ -336,6 +348,7 @@ export class App {
       this.nes.reset();
       this.powered = true;
       this.paused = false;
+      this.updatePauseControl();
       void this.platform.audio.start().then(() =>
         this.nes.apu.setSampleRate(this.platform.audio.sampleRate),
       );
@@ -343,6 +356,8 @@ export class App {
       this.powered = false;
       void this.teardownAiWorker();
       this.nes.unload();
+      this.paused = false;
+      this.updatePauseControl();
       void this.platform.audio.stop();
       this.setStatus('Powered off.');
       this.setGameTitle(null);
@@ -355,6 +370,7 @@ export class App {
 
   private togglePause(): void {
     this.paused = !this.paused;
+    this.updatePauseControl();
   }
 
   /**
@@ -375,14 +391,64 @@ export class App {
 
     this.activeConsoleId = spec.id;
     this.nes = createConsole(spec.id);
-    this.nes.setController(1, this.keyboard);
+    this.nes.setController(1, this.keyboard1);
+    this.nes.setController(2, this.keyboard2);
     this.renderer.setPipeline(this.buildPipeline());
 
     this.sidebar.setTooltip('consoles', this.consoleLabelFromId(spec.id));
-    this.sidebar.setTooltip('roms', `${spec.name} ROMs`);
     this.settingsPanel.setConsoleId(spec.id);
     this.romsPanel.setConsoleId(spec.id, spec.name);
+    if (this.stack.activeL3() === 'roms') {
+      this.romsOpenConsoleId = spec.id;
+      this.consolesPanel.setRomsOpen(spec.id);
+    }
     this.setStatus(`${spec.name} selected.`);
+  }
+
+  private updatePauseControl(): void {
+    this.sidebar.setActive('pause', this.paused);
+    this.sidebar.setIcon('pause', lucide(this.paused ? 'play' : 'pause'));
+    this.sidebar.setTooltip('pause', this.paused ? 'Resume' : 'Pause');
+    mountLucideIcons();
+  }
+
+  private updateKeyboardBindings(player: 1 | 2, bindings: KeyBindings): void {
+    (player === 1 ? this.keyboard1 : this.keyboard2).setBindings(bindings);
+  }
+
+  private toggleConsoleRoms(spec: ConsoleSpec): void {
+    const shouldClose = this.stack.activeL3() === 'roms' && this.romsOpenConsoleId === spec.id;
+    if (this.config.get().general.selectedConsoleId !== spec.id) {
+      this.consolesPanel.setSelected(spec.id);
+      this.selectConsole(spec);
+    }
+    if (shouldClose) {
+      this.stack.closeL3();
+      this.romsOpenConsoleId = null;
+      this.consolesPanel.setRomsOpen(null);
+      return;
+    }
+    this.stack.openL3('roms');
+    this.romsOpenConsoleId = spec.id;
+    this.consolesPanel.setRomsOpen(spec.id);
+  }
+
+  private restoreConsoleRoms(): void {
+    if (!this.romsOpenConsoleId) {
+      this.consolesPanel.setRomsOpen(null);
+      return;
+    }
+
+    const spec = ALL_SPECS.find((candidate) => candidate.id === this.romsOpenConsoleId);
+    if (!spec) {
+      this.romsOpenConsoleId = null;
+      this.consolesPanel.setRomsOpen(null);
+      return;
+    }
+
+    this.romsPanel.setConsoleId(spec.id, spec.name);
+    this.stack.openL3('roms');
+    this.consolesPanel.setRomsOpen(spec.id);
   }
 
   private consoleLabelFromId(id: string): string {
@@ -391,7 +457,14 @@ export class App {
   }
 
   private setStatus(text: string): void {
+    if (this.statusHideTimer) clearTimeout(this.statusHideTimer);
+    if (this.statusFadeTimer) clearTimeout(this.statusFadeTimer);
     this.dom.statusEl.textContent = text;
+    this.dom.statusEl.hidden = false;
+    this.dom.statusEl.classList.remove('status-notification-fade');
+
+    const visibleMs = Math.max(5_000, (text.length / 20) * 1_000 + 5_000);
+    this.statusHideTimer = setTimeout(() => this.hideStatus(true), visibleMs);
   }
 
   /** Toggle the game title block visibility + retrigger the slide-in animation. */
@@ -431,8 +504,33 @@ export class App {
     if (logo) logo.src = theme === 'dark' ? logoDark : logoLight;
   }
 
-  private applyStatusBar(visible: boolean): void {
-    document.documentElement.dataset.statusBar = visible ? 'visible' : 'hidden';
+  private applyFps(visible: boolean): void {
+    document.documentElement.dataset.fps = visible ? 'visible' : 'hidden';
+  }
+
+  private hideStatus(animated: boolean): void {
+    if (this.statusHideTimer) {
+      clearTimeout(this.statusHideTimer);
+      this.statusHideTimer = null;
+    }
+    if (this.statusFadeTimer) {
+      clearTimeout(this.statusFadeTimer);
+      this.statusFadeTimer = null;
+    }
+
+    if (this.dom.statusEl.hidden) return;
+    if (!animated) {
+      this.dom.statusEl.hidden = true;
+      this.dom.statusEl.classList.remove('status-notification-fade');
+      return;
+    }
+
+    this.dom.statusEl.classList.add('status-notification-fade');
+    this.statusFadeTimer = setTimeout(() => {
+      this.dom.statusEl.hidden = true;
+      this.dom.statusEl.classList.remove('status-notification-fade');
+      this.statusFadeTimer = null;
+    }, 220);
   }
 
   // ----- AI upscale worker lifecycle ----------------------------------------
@@ -581,6 +679,19 @@ function lucide(name: string): HTMLElement {
   const i = document.createElement('i');
   i.dataset.lucide = name;
   return i;
+}
+
+function playerInputIcon(player: 1 | 2): HTMLElement {
+  const wrap = document.createElement('span');
+  wrap.className = 'sidebar-player-icon';
+  wrap.appendChild(gameIcon('retro-controller'));
+
+  const badge = document.createElement('span');
+  badge.className = 'sidebar-player-badge';
+  badge.textContent = String(player);
+  wrap.appendChild(badge);
+
+  return wrap;
 }
 
 /**
